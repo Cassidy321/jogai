@@ -1,0 +1,22 @@
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - misspell
+    - gocyclo
+    - bodyclose
+    - nilerr
+    - exhaustive
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  misspell:
+    locale: US
+
+issues:
+  exclude-use-default: false
