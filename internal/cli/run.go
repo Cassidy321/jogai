@@ -17,6 +17,12 @@ type RunCmd struct {
 }
 
 func (c *RunCmd) Run() error {
+	release, err := config.AcquireLock()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	cfg, err := config.Load()
 	if err != nil {
 		return err
@@ -31,7 +37,13 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("Claude Code not found — no sessions to parse")
 	}
 
-	since := config.LoadLastRun()
+	since, err := config.LoadLastRun()
+	if err != nil {
+		since = time.Now().Add(-24 * time.Hour)
+		if err != config.ErrNeverRun {
+			fmt.Printf("Warning: %v — falling back to last 24h\n", err)
+		}
+	}
 	fmt.Printf("Parsing sessions since %s...\n", since.Format("Jan 02 15:04"))
 
 	sessions, err := cc.Sessions(since)
