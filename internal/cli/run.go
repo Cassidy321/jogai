@@ -14,6 +14,7 @@ import (
 
 type RunCmd struct {
 	Period string `help:"Recap period: daily, weekly, monthly." default:"daily" enum:"daily,weekly,monthly"`
+	Since  string `help:"Override start date (YYYY-MM-DD). Ignores last-run cursor." default:""`
 }
 
 func (c *RunCmd) Run() error {
@@ -37,11 +38,21 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("Claude Code not found — no sessions to parse")
 	}
 
-	since, err := config.LoadLastRunFor(c.Period)
-	if err != nil {
-		since = defaultSince(c.Period)
-		if err != config.ErrNeverRun {
-			fmt.Printf("Warning: %v — falling back to default window\n", err)
+	var since time.Time
+	if c.Since != "" {
+		parsed, err := time.Parse("2006-01-02", c.Since)
+		if err != nil {
+			return fmt.Errorf("invalid --since date %q — expected YYYY-MM-DD", c.Since)
+		}
+		since = parsed
+	} else {
+		var err error
+		since, err = config.LoadLastRunFor(c.Period)
+		if err != nil {
+			since = defaultSince(c.Period)
+			if err != config.ErrNeverRun {
+				fmt.Printf("Warning: %v — falling back to default window\n", err)
+			}
 		}
 	}
 	fmt.Printf("Parsing sessions since %s...\n", since.Format("Jan 02 15:04"))
