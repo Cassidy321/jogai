@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
+	"syscall"
 	"time"
 )
 
@@ -30,7 +34,7 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("jogai not configured — run 'jogai init' first")
+			return nil, ErrNotConfigured
 		}
 		return nil, fmt.Errorf("read config: %w", err)
 	}
@@ -66,24 +70,32 @@ func Save(cfg *Config) error {
 	return nil
 }
 
-func LoadLastRun() time.Time {
+var (
+	ErrNotConfigured = fmt.Errorf("jogai not configured — run 'jogai init' first")
+	ErrNeverRun      = fmt.Errorf("jogai has never been run")
+)
+
+func LoadLastRun() (time.Time, error) {
 	dir, err := Dir()
 	if err != nil {
-		return time.Now().Add(-24 * time.Hour)
+		return time.Time{}, fmt.Errorf("resolve config dir: %w", err)
 	}
 
 	path := filepath.Join(dir, "last-run")
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return time.Now().Add(-24 * time.Hour)
+		if os.IsNotExist(err) {
+			return time.Time{}, ErrNeverRun
+		}
+		return time.Time{}, fmt.Errorf("read last-run: %w", err)
 	}
 
 	t, err := time.Parse(time.RFC3339, string(data))
 	if err != nil {
-		return time.Now().Add(-24 * time.Hour)
+		return time.Time{}, fmt.Errorf("parse last-run: %w", err)
 	}
 
-	return t
+	return t, nil
 }
 
 func SaveLastRun(t time.Time) error {
@@ -96,6 +108,85 @@ func SaveLastRun(t time.Time) error {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 
+	tmp, err := os.CreateTemp(dir, ".last-run-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.WriteString(t.Format(time.RFC3339)); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("write last-run: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close last-run: %w", err)
+	}
+
 	path := filepath.Join(dir, "last-run")
-	return os.WriteFile(path, []byte(t.Format(time.RFC3339)), 0o644)
+	if runtime.GOOS == "windows" {
+		os.Remove(path)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename last-run: %w", err)
+	}
+
+	return nil
+}
+
+func AcquireLock() (func(), error) {
+	dir, err := Dir()
+	if err != nil {
+		return nil, err
+	}
+
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create config dir: %w", err)
+	}
+
+	path := filepath.Join(dir, "run.lock")
+
+	if data, err := os.ReadFile(path); err == nil {
+		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
+			if !isProcessAlive(pid) {
+				os.Remove(path)
+			}
+		} else {
+			os.Remove(path)
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		if os.IsExist(err) {
+			return nil, fmt.Errorf("another jogai run is already in progress (remove %s if stale)", path)
+		}
+		return nil, fmt.Errorf("acquire lock: %w", err)
+	}
+
+	if _, err := fmt.Fprintf(f, "%d", os.Getpid()); err != nil {
+		f.Close()
+		os.Remove(path)
+		return nil, fmt.Errorf("write lock PID: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return nil, fmt.Errorf("close lock: %w", err)
+	}
+
+	release := func() {
+		os.Remove(path)
+	}
+	return release, nil
+}
+
+func isProcessAlive(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	err = p.Signal(syscall.Signal(0))
+	return err == nil
 }
