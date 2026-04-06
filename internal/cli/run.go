@@ -13,7 +13,7 @@ import (
 )
 
 type RunCmd struct {
-	Period string `help:"Recap period: session, daily, weekly, monthly." default:"daily" enum:"session,daily,weekly,monthly"`
+	Period string `help:"Recap period: daily, weekly, monthly." default:"daily" enum:"daily,weekly,monthly"`
 }
 
 func (c *RunCmd) Run() error {
@@ -39,9 +39,9 @@ func (c *RunCmd) Run() error {
 
 	since, err := config.LoadLastRunFor(c.Period)
 	if err != nil {
-		since = time.Now().Add(-24 * time.Hour)
+		since = defaultSince(c.Period)
 		if err != config.ErrNeverRun {
-			fmt.Printf("Warning: %v — falling back to last 24h\n", err)
+			fmt.Printf("Warning: %v — falling back to default window\n", err)
 		}
 	}
 	fmt.Printf("Parsing sessions since %s...\n", since.Format("Jan 02 15:04"))
@@ -79,4 +79,16 @@ func (c *RunCmd) Run() error {
 
 	fmt.Printf("Done! Recap written to %s\n", cfg.OutputDir)
 	return nil
+}
+
+func defaultSince(period string) time.Time {
+	now := time.Now()
+	switch period {
+	case "weekly":
+		return now.AddDate(0, 0, -7)
+	case "monthly":
+		return now.AddDate(0, -1, 0)
+	default:
+		return now.Add(-24 * time.Hour)
+	}
 }

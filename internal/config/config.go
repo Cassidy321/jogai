@@ -149,7 +149,7 @@ func SaveLastRunFor(period string, t time.Time) error {
 }
 
 func lastRunFilename(period string) string {
-	if period == "" || period == "session" {
+	if period == "" {
 		return "last-run"
 	}
 	return "last-run-" + period
