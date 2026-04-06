@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,7 +13,6 @@ import (
 )
 
 type Summary struct {
-	Period   string    `json:"period"`
 	Date     time.Time `json:"date"`
 	Content  string    `json:"content"`
 	Sessions int       `json:"sessions"`
@@ -25,7 +25,6 @@ type Usage struct {
 	CostUSD      float64 `json:"cost_usd"`
 }
 
-// cliResponse is the JSON structure returned by claude -p --output-format json.
 type cliResponse struct {
 	Result       string  `json:"result"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
@@ -37,12 +36,15 @@ type cliResponse struct {
 	} `json:"usage"`
 }
 
-func Generate(ctx context.Context, sessions []parser.Session, period string) (*Summary, error) {
+func Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
 
-	prompt := buildPrompt(sessions, period)
+	prompt, err := buildPrompt(sessions)
+	if err != nil {
+		return nil, fmt.Errorf("build prompt: %w", err)
+	}
 
 	resp, err := runCLI(ctx, prompt)
 	if err != nil {
@@ -52,7 +54,6 @@ func Generate(ctx context.Context, sessions []parser.Session, period string) (*S
 	totalInput := resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens
 
 	return &Summary{
-		Period:   period,
 		Date:     time.Now(),
 		Content:  strings.TrimSpace(resp.Result),
 		Sessions: len(sessions),
@@ -64,10 +65,10 @@ func Generate(ctx context.Context, sessions []parser.Session, period string) (*S
 	}, nil
 }
 
-func buildPrompt(sessions []parser.Session, period string) string {
+func buildPrompt(sessions []parser.Session) (string, error) {
 	var b strings.Builder
 
-	fmt.Fprintf(&b, "You are summarizing %d AI coding session(s) for a %s recap.\n\n", len(sessions), period)
+	fmt.Fprintf(&b, "You are summarizing %d AI coding session(s) for a daily recap.\n\n", len(sessions))
 	b.WriteString("Write a concise summary in markdown covering:\n")
 	b.WriteString("- What was worked on (projects, features, bugs)\n")
 	b.WriteString("- Key decisions made\n")
@@ -101,11 +102,14 @@ func buildPrompt(sessions []parser.Session, period string) string {
 		})
 	}
 
-	j, _ := json.Marshal(encoded)
+	j, err := json.Marshal(encoded)
+	if err != nil {
+		return "", fmt.Errorf("encode sessions: %w", err)
+	}
 	b.Write(j)
 	b.WriteString("\n</sessions>")
 
-	return b.String()
+	return b.String(), nil
 }
 
 func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
@@ -116,14 +120,17 @@ func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
-	out, err := cmd.CombinedOutput()
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("claude CLI: %w\n%s", err, string(out))
+		return nil, fmt.Errorf("claude CLI: %w\n%s", err, stderr.String())
 	}
 
 	var resp cliResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, fmt.Errorf("parse claude response: %w", err)
+		return nil, fmt.Errorf("parse claude response: %w\n%s", err, string(out))
 	}
 
 	return &resp, nil

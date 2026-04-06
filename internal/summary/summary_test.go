@@ -24,13 +24,16 @@ func TestBuildPrompt(t *testing.T) {
 		},
 	}
 
-	prompt := buildPrompt(sessions, "daily")
+	prompt, err := buildPrompt(sessions)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !strings.Contains(prompt, "1 AI coding session") {
 		t.Error("prompt should mention session count")
 	}
 	if !strings.Contains(prompt, "daily recap") {
-		t.Error("prompt should mention period")
+		t.Error("prompt should mention daily recap")
 	}
 	if !strings.Contains(prompt, "jogai") {
 		t.Error("prompt should include project name")
@@ -61,7 +64,10 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 		},
 	}
 
-	prompt := buildPrompt(sessions, "weekly")
+	prompt, err := buildPrompt(sessions)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	if !strings.Contains(prompt, "2 AI coding session") {
 		t.Error("prompt should mention 2 sessions")
@@ -72,9 +78,6 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 	if !strings.Contains(prompt, "socadb") {
 		t.Error("prompt should contain second project name")
 	}
-	if !strings.Contains(prompt, "weekly recap") {
-		t.Error("prompt should mention weekly period")
-	}
 	if !strings.Contains(prompt, "<sessions>") {
 		t.Error("prompt should wrap sessions in tags")
 	}
@@ -84,7 +87,7 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 }
 
 func TestGenerateNoSessions(t *testing.T) {
-	_, err := Generate(context.Background(), nil, "daily")
+	_, err := Generate(context.Background(), nil)
 	if err == nil {
 		t.Error("expected error for empty sessions")
 	}

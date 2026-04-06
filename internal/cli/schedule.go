@@ -21,10 +21,10 @@ func (c *ScheduleStartCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := s.Install(scheduler.PeriodDaily, c.At); err != nil {
+	if err := s.Install(c.At); err != nil {
 		return fmt.Errorf("install schedule: %w", err)
 	}
-	fmt.Printf("  ✓ schedule installed (at %s)\n", scheduler.ResolveAt(scheduler.PeriodDaily, c.At))
+	fmt.Printf("  ✓ schedule started (at %s)\n", scheduler.ResolveAt(c.At))
 	return nil
 }
 
@@ -35,10 +35,10 @@ func (c *ScheduleStopCmd) Run() error {
 	if err != nil {
 		return err
 	}
-	if err := s.Uninstall(scheduler.PeriodDaily); err != nil {
-		return fmt.Errorf("uninstall schedule: %w", err)
+	if err := s.Uninstall(); err != nil {
+		return fmt.Errorf("stop schedule: %w", err)
 	}
-	fmt.Println("  ✓ schedule removed")
+	fmt.Println("  ✓ schedule stopped")
 	return nil
 }
 

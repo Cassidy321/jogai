@@ -15,7 +15,6 @@ func TestMarkdownWrite(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Period:   "daily",
 		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
 		Content:  "## jogai\n\nWorked on the CLI parser.",
 		Sessions: 3,
@@ -25,15 +24,15 @@ func TestMarkdownWrite(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	path := filepath.Join(dir, "2026-04-06-daily.md")
+	path := filepath.Join(dir, "2026-04-06.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("file not created: %v", err)
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "daily recap") {
-		t.Error("should contain period in title")
+	if !strings.Contains(content, "recap") {
+		t.Error("should contain recap in title")
 	}
 	if !strings.Contains(content, "April 6, 2026") {
 		t.Error("should contain formatted date")
@@ -48,9 +47,8 @@ func TestMarkdownWriteCreatesDir(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Period:   "weekly",
 		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:  "Weekly summary.",
+		Content:  "Summary.",
 		Sessions: 5,
 	}
 
@@ -58,26 +56,9 @@ func TestMarkdownWriteCreatesDir(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	path := filepath.Join(dir, "2026-04-06-weekly.md")
+	path := filepath.Join(dir, "2026-04-06.md")
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("file not created in nested dir: %v", err)
-	}
-}
-
-func TestMarkdownRejectsInvalidPeriod(t *testing.T) {
-	dir := t.TempDir()
-	md := NewMarkdown(dir)
-
-	s := &summary.Summary{
-		Period:   "../../etc",
-		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:  "bad",
-		Sessions: 1,
-	}
-
-	err := md.Write(s)
-	if err == nil {
-		t.Error("expected error for invalid period")
 	}
 }
 
@@ -86,7 +67,6 @@ func TestMarkdownAtomicWrite(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Period:   "daily",
 		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
 		Content:  "first version",
 		Sessions: 1,
@@ -100,7 +80,7 @@ func TestMarkdownAtomicWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	path := filepath.Join(dir, "2026-04-06-daily.md")
+	path := filepath.Join(dir, "2026-04-06.md")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -122,7 +102,6 @@ func TestMarkdownFilename(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Period:   "monthly",
 		Date:     time.Date(2026, 12, 25, 10, 0, 0, 0, time.UTC),
 		Content:  "End of year.",
 		Sessions: 1,
@@ -132,7 +111,7 @@ func TestMarkdownFilename(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	expected := filepath.Join(dir, "2026-12-25-monthly.md")
+	expected := filepath.Join(dir, "2026-12-25.md")
 	if _, err := os.Stat(expected); err != nil {
 		t.Errorf("expected file %s, got error: %v", expected, err)
 	}

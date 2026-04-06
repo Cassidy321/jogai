@@ -8,13 +8,6 @@ import (
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
-var validPeriods = map[string]bool{
-	"session": true,
-	"daily":   true,
-	"weekly":  true,
-	"monthly": true,
-}
-
 type Markdown struct {
 	dir string
 }
@@ -24,19 +17,14 @@ func NewMarkdown(dir string) *Markdown {
 }
 
 func (m *Markdown) Write(s *summary.Summary) error {
-	if !validPeriods[s.Period] {
-		return fmt.Errorf("invalid period: %q", s.Period)
-	}
-
 	if err := os.MkdirAll(m.dir, 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	filename := fmt.Sprintf("%s-%s.md", s.Date.Format("2006-01-02"), s.Period)
+	filename := fmt.Sprintf("%s.md", s.Date.Format("2006-01-02"))
 	path := filepath.Join(m.dir, filename)
 
-	content := fmt.Sprintf("# %s recap — %s\n\n%s\n",
-		s.Period,
+	content := fmt.Sprintf("# recap — %s\n\n%s\n",
 		s.Date.Format("January 2, 2006"),
 		s.Content,
 	)

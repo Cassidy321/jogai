@@ -76,22 +76,12 @@ var (
 )
 
 func LoadLastRun() (time.Time, error) {
-	return LoadLastRunFor("")
-}
-
-func SaveLastRun(t time.Time) error {
-	return SaveLastRunFor("", t)
-}
-
-// LoadLastRunFor returns the last run time for the given period.
-// An empty period uses the global "last-run" file for backwards compatibility.
-func LoadLastRunFor(period string) (time.Time, error) {
 	dir, err := Dir()
 	if err != nil {
 		return time.Time{}, fmt.Errorf("resolve config dir: %w", err)
 	}
 
-	path := filepath.Join(dir, lastRunFilename(period))
+	path := filepath.Join(dir, "last-run")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -108,9 +98,7 @@ func LoadLastRunFor(period string) (time.Time, error) {
 	return t, nil
 }
 
-// SaveLastRunFor persists the last run time for the given period.
-// An empty period uses the global "last-run" file for backwards compatibility.
-func SaveLastRunFor(period string, t time.Time) error {
+func SaveLastRun(t time.Time) error {
 	dir, err := Dir()
 	if err != nil {
 		return err
@@ -136,7 +124,7 @@ func SaveLastRunFor(period string, t time.Time) error {
 		return fmt.Errorf("close last-run: %w", err)
 	}
 
-	path := filepath.Join(dir, lastRunFilename(period))
+	path := filepath.Join(dir, "last-run")
 	if runtime.GOOS == "windows" {
 		os.Remove(path)
 	}
@@ -146,13 +134,6 @@ func SaveLastRunFor(period string, t time.Time) error {
 	}
 
 	return nil
-}
-
-func lastRunFilename(period string) string {
-	if period == "" {
-		return "last-run"
-	}
-	return "last-run-" + period
 }
 
 func AcquireLock() (func(), error) {

@@ -68,7 +68,7 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := summary.Generate(ctx, filtered, "daily")
+	s, err := summary.Generate(ctx, filtered)
 	if err != nil {
 		return fmt.Errorf("generate summary: %w", err)
 	}
