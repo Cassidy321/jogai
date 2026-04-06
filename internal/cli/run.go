@@ -37,7 +37,7 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("Claude Code not found — no sessions to parse")
 	}
 
-	since, err := config.LoadLastRun()
+	since, err := config.LoadLastRunFor(c.Period)
 	if err != nil {
 		since = time.Now().Add(-24 * time.Hour)
 		if err != config.ErrNeverRun {
@@ -73,7 +73,7 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("write output: %w", err)
 	}
 
-	if err := config.SaveLastRun(time.Now()); err != nil {
+	if err := config.SaveLastRunFor(c.Period, time.Now()); err != nil {
 		return fmt.Errorf("save last run: %w", err)
 	}
 
