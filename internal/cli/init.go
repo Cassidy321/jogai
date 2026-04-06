@@ -14,7 +14,8 @@ import (
 type InitCmd struct{}
 
 func (c *InitCmd) Run() error {
-	fmt.Println("jogai init — setting up your AI session recaps\n")
+	fmt.Println("jogai init — setting up your AI session recaps")
+	fmt.Println()
 
 	cc, err := parser.NewClaudeCode()
 	if err != nil {
@@ -28,7 +29,10 @@ func (c *InitCmd) Run() error {
 		return fmt.Errorf("no supported AI tool found — install Claude Code first")
 	}
 
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("resolve home dir: %w", err)
+	}
 	defaultDir := filepath.Join(home, "jogai-recaps")
 
 	var outputDir string
@@ -49,7 +53,7 @@ func (c *InitCmd) Run() error {
 		outputDir = defaultDir
 	}
 
-	if outputDir[:2] == "~/" {
+	if len(outputDir) >= 2 && outputDir[:2] == "~/" {
 		outputDir = filepath.Join(home, outputDir[2:])
 	}
 
