@@ -84,19 +84,15 @@ func buildPrompt(sessions []parser.Session, period string) string {
 
 func runCLI(ctx context.Context, prompt string) (string, error) {
 	cmd := exec.CommandContext(ctx, "claude",
-		"-p", "-",
+		"-p",
 		"--output-format", "text",
 		"--no-session-persistence",
-		"--bare",
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
-	out, err := cmd.Output()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return "", fmt.Errorf("claude CLI: %w\n%s", err, string(ee.Stderr))
-		}
-		return "", fmt.Errorf("claude CLI: %w", err)
+		return "", fmt.Errorf("claude CLI: %w\n%s", err, string(out))
 	}
 
 	return string(out), nil
