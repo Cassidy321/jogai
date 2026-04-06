@@ -16,6 +16,25 @@ type Summary struct {
 	Date     time.Time `json:"date"`
 	Content  string    `json:"content"`
 	Sessions int       `json:"sessions"`
+	Usage    Usage     `json:"usage"`
+}
+
+type Usage struct {
+	InputTokens  int     `json:"input_tokens"`
+	OutputTokens int     `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+// cliResponse is the JSON structure returned by claude -p --output-format json.
+type cliResponse struct {
+	Result       string  `json:"result"`
+	TotalCostUSD float64 `json:"total_cost_usd"`
+	Usage        struct {
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	} `json:"usage"`
 }
 
 func Generate(ctx context.Context, sessions []parser.Session, period string) (*Summary, error) {
@@ -25,16 +44,23 @@ func Generate(ctx context.Context, sessions []parser.Session, period string) (*S
 
 	prompt := buildPrompt(sessions, period)
 
-	out, err := runCLI(ctx, prompt)
+	resp, err := runCLI(ctx, prompt)
 	if err != nil {
 		return nil, fmt.Errorf("summarize: %w", err)
 	}
 
+	totalInput := resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens
+
 	return &Summary{
 		Period:   period,
 		Date:     time.Now(),
-		Content:  strings.TrimSpace(out),
+		Content:  strings.TrimSpace(resp.Result),
 		Sessions: len(sessions),
+		Usage: Usage{
+			InputTokens:  totalInput,
+			OutputTokens: resp.Usage.OutputTokens,
+			CostUSD:      resp.TotalCostUSD,
+		},
 	}, nil
 }
 
@@ -82,18 +108,23 @@ func buildPrompt(sessions []parser.Session, period string) string {
 	return b.String()
 }
 
-func runCLI(ctx context.Context, prompt string) (string, error) {
+func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
 	cmd := exec.CommandContext(ctx, "claude",
 		"-p",
-		"--output-format", "text",
+		"--output-format", "json",
 		"--no-session-persistence",
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("claude CLI: %w\n%s", err, string(out))
+		return nil, fmt.Errorf("claude CLI: %w\n%s", err, string(out))
 	}
 
-	return string(out), nil
+	var resp cliResponse
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return nil, fmt.Errorf("parse claude response: %w", err)
+	}
+
+	return &resp, nil
 }

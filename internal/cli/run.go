@@ -13,8 +13,7 @@ import (
 )
 
 type RunCmd struct {
-	Period string `help:"Recap period: daily, weekly, monthly." default:"daily" enum:"daily,weekly,monthly"`
-	Since  string `help:"Override start date (YYYY-MM-DD). Ignores last-run cursor." default:""`
+	Since string `help:"Recap a specific day (YYYY-MM-DD). Defaults to last 24h." default:""`
 }
 
 func (c *RunCmd) Run() error {
@@ -38,28 +37,23 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("Claude Code not found — no sessions to parse")
 	}
 
-	var since time.Time
-	if c.Since != "" {
-		parsed, err := time.Parse("2006-01-02", c.Since)
-		if err != nil {
-			return fmt.Errorf("invalid --since date %q — expected YYYY-MM-DD", c.Since)
-		}
-		since = parsed
-	} else {
-		var err error
-		since, err = config.LoadLastRunFor(c.Period)
-		if err != nil {
-			since = defaultSince(c.Period)
-			if err != config.ErrNeverRun {
-				fmt.Printf("Warning: %v — falling back to default window\n", err)
-			}
-		}
+	since, until, err := c.timeWindow()
+	if err != nil {
+		return err
 	}
-	fmt.Printf("Parsing sessions since %s...\n", since.Format("Jan 02 15:04"))
+	fmt.Printf("Parsing sessions from %s to %s...\n", since.Format("Jan 02 15:04"), until.Format("Jan 02 15:04"))
 
-	sessions, err := cc.Sessions(since)
+	allSessions, err := cc.Sessions(since)
 	if err != nil {
 		return fmt.Errorf("parse sessions: %w", err)
+	}
+
+	// Filter sessions within the time window.
+	var sessions []parser.Session
+	for _, s := range allSessions {
+		if s.StartedAt.Before(until) {
+			sessions = append(sessions, s)
+		}
 	}
 
 	if len(sessions) == 0 {
@@ -74,7 +68,7 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := summary.Generate(ctx, filtered, c.Period)
+	s, err := summary.Generate(ctx, filtered, "daily")
 	if err != nil {
 		return fmt.Errorf("generate summary: %w", err)
 	}
@@ -84,22 +78,31 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("write output: %w", err)
 	}
 
-	if err := config.SaveLastRunFor(c.Period, time.Now()); err != nil {
-		return fmt.Errorf("save last run: %w", err)
+	if c.Since == "" {
+		if err := config.SaveLastRun(time.Now()); err != nil {
+			return fmt.Errorf("save last run: %w", err)
+		}
 	}
 
 	fmt.Printf("Done! Recap written to %s\n", cfg.OutputDir)
 	return nil
 }
 
-func defaultSince(period string) time.Time {
-	now := time.Now()
-	switch period {
-	case "weekly":
-		return now.AddDate(0, 0, -7)
-	case "monthly":
-		return now.AddDate(0, -1, 0)
-	default:
-		return now.Add(-24 * time.Hour)
+func (c *RunCmd) timeWindow() (since, until time.Time, err error) {
+	if c.Since != "" {
+		day, parseErr := time.Parse("2006-01-02", c.Since)
+		if parseErr != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("invalid --since date %q — expected YYYY-MM-DD", c.Since)
+		}
+		return day, day.AddDate(0, 0, 1), nil
 	}
+
+	since, err = config.LoadLastRun()
+	if err != nil {
+		since = time.Now().Add(-24 * time.Hour)
+		if err != config.ErrNeverRun {
+			fmt.Printf("Warning: %v — falling back to last 24h\n", err)
+		}
+	}
+	return since, time.Now(), nil
 }
