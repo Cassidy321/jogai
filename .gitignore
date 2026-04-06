@@ -1,4 +1,5 @@
 bin/
+jogai
 dist/
 *.exe
 *.exe~
