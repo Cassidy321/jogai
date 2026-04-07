@@ -113,8 +113,7 @@ func TestParseSessionFromFixture(t *testing.T) {
 	}
 	f.Close()
 
-	cc := &ClaudeCode{baseDir: "unused"}
-	session, err := cc.parseSession(path, time.Time{})
+	session, err := parseSessionFile(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -189,15 +188,16 @@ func TestParseSessionSinceFiltersMessages(t *testing.T) {
 	}
 	f.Close()
 
-	since, _ := time.Parse(time.RFC3339, "2026-04-05T00:00:00Z")
-	cc := &ClaudeCode{baseDir: "unused"}
-	session, err := cc.parseSession(path, since)
+	session, err := parseSessionFile(path)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if session == nil {
 		t.Fatal("expected a session with recent messages, got nil")
 	}
+
+	since, _ := time.Parse(time.RFC3339, "2026-04-05T00:00:00Z")
+	session.Messages = filterMessages(session.Messages, since)
 	if len(session.Messages) != 2 {
 		t.Errorf("expected 2 messages after since filter, got %d", len(session.Messages))
 	}
@@ -240,8 +240,7 @@ func TestParseSessionScannerError(t *testing.T) {
 	f.Write([]byte("\n"))
 	f.Close()
 
-	cc := &ClaudeCode{baseDir: "unused"}
-	_, err = cc.parseSession(path, time.Time{})
+	_, err = parseSessionFile(path)
 	if err == nil {
 		t.Error("expected an error for oversized JSONL line, got nil")
 	}

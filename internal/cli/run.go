@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
-	"github.com/Cassidy321/jogai/internal/filter"
 	"github.com/Cassidy321/jogai/internal/output"
 	"github.com/Cassidy321/jogai/internal/parser"
+	"github.com/Cassidy321/jogai/internal/recap"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -43,39 +43,23 @@ func (c *RunCmd) Run() error {
 	}
 	fmt.Printf("Parsing sessions from %s to %s...\n", since.Format("Jan 02 15:04"), until.Format("Jan 02 15:04"))
 
-	allSessions, err := cc.Sessions(since)
-	if err != nil {
-		return fmt.Errorf("parse sessions: %w", err)
+	p := &recap.Pipeline{
+		Parser:     cc,
+		Summarizer: recap.SummarizerFunc(summary.Generate),
+		Writer:     output.NewMarkdown(cfg.OutputDir),
 	}
 
-	// Filter sessions within the time window.
-	var sessions []parser.Session
-	for _, s := range allSessions {
-		if s.StartedAt.Before(until) {
-			sessions = append(sessions, s)
-		}
-	}
-
-	if len(sessions) == 0 {
-		fmt.Println("No new sessions found.")
-		return nil
-	}
-
-	fmt.Printf("Found %d session(s). Filtering...\n", len(sessions))
-	filtered := filter.Reduce(sessions)
-
-	fmt.Println("Generating summary...")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := summary.Generate(ctx, filtered)
+	s, err := p.Run(ctx, since, until)
 	if err != nil {
-		return fmt.Errorf("generate summary: %w", err)
+		return err
 	}
 
-	md := output.NewMarkdown(cfg.OutputDir)
-	if err := md.Write(s); err != nil {
-		return fmt.Errorf("write output: %w", err)
+	if s == nil {
+		fmt.Println("No new sessions found.")
+		return nil
 	}
 
 	if c.Since == "" {

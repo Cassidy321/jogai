@@ -61,10 +61,17 @@ func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 				continue
 			}
 
-			session, err := c.parseSession(filepath.Join(dirPath, f.Name()), since)
+			session, err := parseSessionFile(filepath.Join(dirPath, f.Name()))
 			if err != nil || session == nil {
 				continue
 			}
+
+			// Filter messages by timestamp.
+			filtered := filterMessages(session.Messages, since)
+			if len(filtered) == 0 {
+				continue
+			}
+			session.Messages = filtered
 
 			sessions = append(sessions, *session)
 		}
@@ -84,7 +91,8 @@ type jsonlLine struct {
 	} `json:"message"`
 }
 
-func (c *ClaudeCode) parseSession(path string, since time.Time) (*Session, error) {
+// parseSessionFile reads all messages from a JSONL file without filtering.
+func parseSessionFile(path string) (*Session, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -115,10 +123,6 @@ func (c *ClaudeCode) parseSession(path string, since time.Time) (*Session, error
 		}
 		endedAt = line.Timestamp
 
-		if line.Timestamp.Before(since) {
-			continue
-		}
-
 		text := extractText(line.Message.Content)
 		if text == "" {
 			continue
@@ -147,6 +151,17 @@ func (c *ClaudeCode) parseSession(path string, since time.Time) (*Session, error
 		Project:   project,
 		Messages:  messages,
 	}, nil
+}
+
+// filterMessages returns only messages at or after since.
+func filterMessages(messages []Message, since time.Time) []Message {
+	var filtered []Message
+	for _, m := range messages {
+		if !m.Timestamp.Before(since) {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
 
 func extractText(raw json.RawMessage) string {
