@@ -57,6 +57,10 @@ func (c *InitCmd) Run() error {
 		outputDir = filepath.Join(home, outputDir[2:])
 	}
 
+	if err := os.MkdirAll(outputDir, 0o755); err != nil {
+		return fmt.Errorf("cannot create output directory %s: %w", outputDir, err)
+	}
+
 	cfg := &config.Config{
 		OutputDir: outputDir,
 	}

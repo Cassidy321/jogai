@@ -61,7 +61,7 @@ func (c *StatusCmd) Run() error {
 	}
 
 	if !healthy {
-		return fmt.Errorf("unhealthy state detected")
+		return fmt.Errorf("some checks failed — see above for details")
 	}
 
 	return nil

@@ -36,7 +36,7 @@ func (c *ClaudeCode) Detect() bool {
 func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 	projectDirs, err := os.ReadDir(c.baseDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read Claude Code sessions at %s: %w", c.baseDir, err)
 	}
 
 	var sessions []Session

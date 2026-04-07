@@ -89,7 +89,7 @@ func classifyError(result string) error {
 	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "authentication"):
 		return fmt.Errorf("authentication failed — check your Claude subscription or run 'claude auth'")
 	default:
-		return fmt.Errorf("claude error: %s", result)
+		return fmt.Errorf("summary generation failed: %s", result)
 	}
 }
 
@@ -164,12 +164,12 @@ func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
 				return &resp, nil
 			}
 		}
-		return nil, fmt.Errorf("claude CLI failed: %w\n%s", err, stderr.String())
+		return nil, fmt.Errorf("claude CLI failed — make sure you're logged in and have an active subscription\n  detail: %w\n  %s", err, stderr.String())
 	}
 
 	var resp cliResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, fmt.Errorf("unexpected claude response: %w\n%s", err, string(out))
+		return nil, fmt.Errorf("could not read claude response — try running 'claude -p' manually to check for issues\n  detail: %w", err)
 	}
 
 	return &resp, nil
