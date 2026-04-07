@@ -35,7 +35,7 @@ type Pipeline struct {
 }
 
 // Run executes the full recap pipeline for sessions in the given time window.
-func (p *Pipeline) Run(ctx context.Context, since, until time.Time) (*summary.Summary, error) {
+func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (*summary.Summary, error) {
 	allSessions, err := p.Parser.Sessions(since)
 	if err != nil {
 		return nil, fmt.Errorf("parse sessions: %w", err)
@@ -58,6 +58,8 @@ func (p *Pipeline) Run(ctx context.Context, since, until time.Time) (*summary.Su
 	if err != nil {
 		return nil, fmt.Errorf("generate summary: %w", err)
 	}
+
+	s.Date = recapDate
 
 	if err := p.Writer.Write(s); err != nil {
 		return nil, fmt.Errorf("write output: %w", err)

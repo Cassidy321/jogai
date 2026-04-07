@@ -31,12 +31,6 @@ func TestMarkdownWrite(t *testing.T) {
 	}
 
 	content := string(data)
-	if !strings.Contains(content, "recap") {
-		t.Error("should contain recap in title")
-	}
-	if !strings.Contains(content, "April 6, 2026") {
-		t.Error("should contain formatted date")
-	}
 	if !strings.Contains(content, "Worked on the CLI parser") {
 		t.Error("should contain summary content")
 	}

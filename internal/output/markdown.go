@@ -24,10 +24,7 @@ func (m *Markdown) Write(s *summary.Summary) error {
 	filename := fmt.Sprintf("%s.md", s.Date.Format("2006-01-02"))
 	path := filepath.Join(m.dir, filename)
 
-	content := fmt.Sprintf("# recap — %s\n\n%s\n",
-		s.Date.Format("January 2, 2006"),
-		s.Content,
-	)
+	content := s.Content + "\n"
 
 	tmp, err := os.CreateTemp(m.dir, ".jogai-*.md")
 	if err != nil {

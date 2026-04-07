@@ -57,7 +57,7 @@ func TestPipelineRun(t *testing.T) {
 	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
-	s, err := p.Run(context.Background(), since, until)
+	s, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestPipelineNoSessions(t *testing.T) {
 	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
-	s, err := p.Run(context.Background(), since, until)
+	s, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -124,7 +124,7 @@ func TestPipelineFiltersUntil(t *testing.T) {
 	since := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 
-	_, err := p.Run(context.Background(), since, until)
+	_, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
