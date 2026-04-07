@@ -27,6 +27,7 @@ type Usage struct {
 
 type cliResponse struct {
 	Result       string  `json:"result"`
+	IsError      bool    `json:"is_error"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Usage        struct {
 		InputTokens              int `json:"input_tokens"`
@@ -34,6 +35,15 @@ type cliResponse struct {
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
+}
+
+// CheckCLI verifies that the claude CLI is installed and reachable.
+func CheckCLI() error {
+	_, err := exec.LookPath("claude")
+	if err != nil {
+		return fmt.Errorf("claude CLI not found — install it from https://claude.com/product/claude-code")
+	}
+	return nil
 }
 
 func Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
@@ -48,7 +58,11 @@ func Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) 
 
 	resp, err := runCLI(ctx, prompt)
 	if err != nil {
-		return nil, fmt.Errorf("summarize: %w", err)
+		return nil, err
+	}
+
+	if resp.IsError {
+		return nil, classifyError(resp.Result)
 	}
 
 	totalInput := resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens
@@ -63,6 +77,20 @@ func Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) 
 			CostUSD:      resp.TotalCostUSD,
 		},
 	}, nil
+}
+
+func classifyError(result string) error {
+	lower := strings.ToLower(result)
+	switch {
+	case strings.Contains(lower, "prompt is too long"):
+		return fmt.Errorf("too many sessions to summarize at once — try a shorter time window with --since")
+	case strings.Contains(lower, "rate limit"), strings.Contains(lower, "too many requests"):
+		return fmt.Errorf("rate limit reached — wait a few minutes and try again")
+	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "authentication"):
+		return fmt.Errorf("authentication failed — check your Claude subscription or run 'claude auth'")
+	default:
+		return fmt.Errorf("claude error: %s", result)
+	}
 }
 
 func buildPrompt(sessions []parser.Session) (string, error) {
@@ -113,6 +141,10 @@ func buildPrompt(sessions []parser.Session) (string, error) {
 }
 
 func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
+	if err := CheckCLI(); err != nil {
+		return nil, err
+	}
+
 	cmd := exec.CommandContext(ctx, "claude",
 		"-p",
 		"--output-format", "json",
@@ -125,12 +157,19 @@ func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
 
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("claude CLI: %w\n%s", err, stderr.String())
+		// Claude CLI may return exit code 1 but still produce valid JSON with error details.
+		if len(out) > 0 {
+			var resp cliResponse
+			if jsonErr := json.Unmarshal(out, &resp); jsonErr == nil {
+				return &resp, nil
+			}
+		}
+		return nil, fmt.Errorf("claude CLI failed: %w\n%s", err, stderr.String())
 	}
 
 	var resp cliResponse
 	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, fmt.Errorf("parse claude response: %w\n%s", err, string(out))
+		return nil, fmt.Errorf("unexpected claude response: %w\n%s", err, string(out))
 	}
 
 	return &resp, nil

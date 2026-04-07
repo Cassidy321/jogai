@@ -6,6 +6,7 @@ import (
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/parser"
+	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 type StatusCmd struct{}
@@ -25,6 +26,13 @@ func (c *StatusCmd) Run() error {
 	} else {
 		fmt.Println("  Parser:    ✗ Claude Code not found")
 		healthy = false
+	}
+
+	if err := summary.CheckCLI(); err != nil {
+		fmt.Println("  Summarizer: ✗ claude CLI not found")
+		healthy = false
+	} else {
+		fmt.Println("  Summarizer: ✓ claude CLI")
 	}
 
 	cfg, err := config.Load()
