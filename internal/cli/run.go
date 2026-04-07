@@ -34,7 +34,7 @@ func (c *RunCmd) Run() error {
 	}
 
 	if !cc.Detect() {
-		return fmt.Errorf("Claude Code not found — no sessions to parse")
+		return fmt.Errorf("claude Code not found — no sessions to parse")
 	}
 
 	since, until, err := c.timeWindow()

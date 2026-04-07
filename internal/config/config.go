@@ -115,21 +115,21 @@ func SaveLastRun(t time.Time) error {
 	tmpPath := tmp.Name()
 
 	if _, err := tmp.WriteString(t.Format(time.RFC3339)); err != nil {
-		tmp.Close()
-		os.Remove(tmpPath)
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("write last-run: %w", err)
 	}
 	if err := tmp.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close last-run: %w", err)
 	}
 
 	path := filepath.Join(dir, "last-run")
 	if runtime.GOOS == "windows" {
-		os.Remove(path)
+		_ = os.Remove(path)
 	}
 	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename last-run: %w", err)
 	}
 
@@ -151,10 +151,10 @@ func AcquireLock() (func(), error) {
 	if data, err := os.ReadFile(path); err == nil {
 		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
 			if !isProcessAlive(pid) {
-				os.Remove(path)
+				_ = os.Remove(path)
 			}
 		} else {
-			os.Remove(path)
+			_ = os.Remove(path)
 		}
 	}
 
@@ -167,17 +167,17 @@ func AcquireLock() (func(), error) {
 	}
 
 	if _, err := fmt.Fprintf(f, "%d", os.Getpid()); err != nil {
-		f.Close()
-		os.Remove(path)
+		_ = f.Close()
+		_ = os.Remove(path)
 		return nil, fmt.Errorf("write lock PID: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(path)
+		_ = os.Remove(path)
 		return nil, fmt.Errorf("close lock: %w", err)
 	}
 
 	release := func() {
-		os.Remove(path)
+		_ = os.Remove(path)
 	}
 	return release, nil
 }

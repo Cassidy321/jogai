@@ -97,7 +97,7 @@ func parseSessionFile(path string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	messages := make([]Message, 0, 128)
 	var sessionID, project string

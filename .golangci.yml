@@ -6,19 +6,20 @@ linters:
     - govet
     - staticcheck
     - unused
-    - gosimple
     - ineffassign
     - misspell
     - gocyclo
     - bodyclose
     - nilerr
     - exhaustive
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
 
 linters-settings:
   gocyclo:
     min-complexity: 15
   misspell:
     locale: US
-
-issues:
-  exclude-use-default: false

@@ -129,7 +129,7 @@ func (l *launchd) saveAt(at string) error {
 }
 
 func (l *launchd) removeAt() {
-	os.Remove(l.schedulesPath())
+	_ = os.Remove(l.schedulesPath())
 }
 
 func (l *launchd) Install(at string) error {
