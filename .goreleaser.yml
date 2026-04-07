@@ -37,6 +37,7 @@ brews:
   - repository:
       owner: Cassidy321
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/Cassidy321/jogai"
     description: "AI session recaps — jog your memory"
     license: "MIT"
