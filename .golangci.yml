@@ -1,25 +1,35 @@
 version: "2"
-
 linters:
   enable:
-    - errcheck
-    - govet
-    - staticcheck
-    - unused
-    - ineffassign
-    - misspell
-    - gocyclo
     - bodyclose
-    - nilerr
     - exhaustive
+    - gocyclo
+    - misspell
+    - nilerr
+  settings:
+    gocyclo:
+      min-complexity: 15
+    misspell:
+      locale: US
   exclusions:
+    generated: lax
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
     rules:
       - path: _test\.go
         linters:
           - errcheck
-
-linters-settings:
-  gocyclo:
-    min-complexity: 15
-  misspell:
-    locale: US
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
+formatters:
+  exclusions:
+    generated: lax
+    paths:
+      - third_party$
+      - builtin$
+      - examples$
