@@ -41,7 +41,7 @@ type cliResponse struct {
 func CheckCLI() error {
 	_, err := exec.LookPath("claude")
 	if err != nil {
-		return fmt.Errorf("claude CLI not found — install it from https://claude.com/product/claude-code")
+		return fmt.Errorf("claude CLI not found in PATH — if running from a schedule, run `jogai schedule start` to refresh the PATH")
 	}
 	return nil
 }

@@ -20,6 +20,11 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 <dict>
 	<key>Label</key>
 	<string>com.jogai.daily</string>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>PATH</key>
+		<string>{{.ClaudeDir}}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+	</dict>
 	<key>ProgramArguments</key>
 	<array>
 		<string>{{.ExecPath}}</string>
@@ -43,9 +48,10 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 const launchdLabel = "com.jogai.daily"
 
 type plistData struct {
-	ExecPath string
-	Schedule Schedule
-	LogDir   string
+	ExecPath  string
+	ClaudeDir string
+	Schedule  Schedule
+	LogDir    string
 }
 
 type launchd struct {
@@ -79,12 +85,13 @@ func (l *launchd) isLoaded() bool {
 	return err == nil
 }
 
-func generatePlist(sched Schedule, execPath, logDir string) ([]byte, error) {
+func generatePlist(sched Schedule, execPath, claudeDir, logDir string) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := plistTmpl.Execute(&buf, plistData{
-		ExecPath: execPath,
-		Schedule: sched,
-		LogDir:   logDir,
+		ExecPath:  execPath,
+		ClaudeDir: claudeDir,
+		Schedule:  sched,
+		LogDir:    logDir,
 	}); err != nil {
 		return nil, fmt.Errorf("execute plist template: %w", err)
 	}
@@ -147,12 +154,17 @@ func (l *launchd) Install(at string) error {
 		return fmt.Errorf("cannot install schedule from a temporary binary (%s) — build and install jogai first", execPath)
 	}
 
+	claudePath, err := exec.LookPath("claude")
+	if err != nil {
+		return fmt.Errorf("claude CLI not found — install it from https://claude.com/product/claude-code")
+	}
+
 	logDir := filepath.Join(l.configDir, "logs")
 	if err := os.MkdirAll(logDir, 0o755); err != nil {
 		return fmt.Errorf("create log dir: %w", err)
 	}
 
-	plist, err := generatePlist(sched, execPath, logDir)
+	plist, err := generatePlist(sched, execPath, filepath.Dir(claudePath), logDir)
 	if err != nil {
 		return err
 	}
