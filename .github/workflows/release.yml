@@ -39,12 +39,17 @@ jobs:
           path: homebrew-tap
       - name: Update formula
         run: ./scripts/update-homebrew-formula.sh "${GITHUB_REF_NAME}" "${GITHUB_WORKSPACE}/homebrew-tap/Formula/jogai.rb"
+      - name: Mount tap for Homebrew
+        run: |
+          tap_root="$(brew --repository)/Library/Taps/cassidy321"
+          mkdir -p "$tap_root"
+          ln -sfn "${GITHUB_WORKSPACE}/homebrew-tap" "$tap_root/homebrew-tap"
       - name: Smoke test formula
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
         run: |
-          brew install --build-from-source "${GITHUB_WORKSPACE}/homebrew-tap/Formula/jogai.rb"
-          brew test jogai
+          brew install --build-from-source cassidy321/tap/jogai
+          brew test cassidy321/tap/jogai
       - name: Commit and push tap changes
         working-directory: homebrew-tap
         run: |
