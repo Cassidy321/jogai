@@ -39,7 +39,7 @@ That's it. A markdown file appears in your output directory.
 jogai run
 
 # Recap of a specific day
-jogai run --since 2026-04-01
+jogai run --day 2026-04-01
 ```
 
 ### Schedule daily recaps
@@ -47,6 +47,9 @@ jogai run --since 2026-04-01
 ```bash
 # Run automatically every day at 9am
 jogai schedule start --at 09:00
+
+# The scheduled run summarizes the fixed window
+# from yesterday 09:00 to today 09:00
 
 # Check schedule status
 jogai schedule status
@@ -67,7 +70,6 @@ jogai status
   Parser:     ✓ Claude Code
   Summarizer: ✓ claude CLI
   Output:     /Users/you/jogai-recaps
-  Last run:   Apr 06, 2026 21:03
 ```
 
 ## Requirements

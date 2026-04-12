@@ -15,9 +15,11 @@ func TestMarkdownWrite(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:  "## jogai\n\nWorked on the CLI parser.",
-		Sessions: 3,
+		Date:        time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 5, 20, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		Content:     "## jogai\n\nWorked on the CLI parser.",
+		Sessions:    3,
 	}
 
 	if err := md.Write(s); err != nil {
@@ -34,6 +36,9 @@ func TestMarkdownWrite(t *testing.T) {
 	if !strings.Contains(content, "Worked on the CLI parser") {
 		t.Error("should contain summary content")
 	}
+	if !strings.Contains(content, "<!-- jogai-window 2026-04-05T20:00:00Z 2026-04-06T20:00:00Z -->") {
+		t.Error("should contain window metadata")
+	}
 }
 
 func TestMarkdownWriteCreatesDir(t *testing.T) {
@@ -41,9 +46,11 @@ func TestMarkdownWriteCreatesDir(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:  "Summary.",
-		Sessions: 5,
+		Date:        time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 5, 20, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		Content:     "Summary.",
+		Sessions:    5,
 	}
 
 	if err := md.Write(s); err != nil {
@@ -61,9 +68,11 @@ func TestMarkdownAtomicWrite(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Date:     time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:  "first version",
-		Sessions: 1,
+		Date:        time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 5, 20, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
+		Content:     "first version",
+		Sessions:    1,
 	}
 	if err := md.Write(s); err != nil {
 		t.Fatal(err)
@@ -96,9 +105,11 @@ func TestMarkdownFilename(t *testing.T) {
 	md := NewMarkdown(dir)
 
 	s := &summary.Summary{
-		Date:     time.Date(2026, 12, 25, 10, 0, 0, 0, time.UTC),
-		Content:  "End of year.",
-		Sessions: 1,
+		Date:        time.Date(2026, 12, 25, 10, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 12, 24, 10, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 12, 25, 10, 0, 0, 0, time.UTC),
+		Content:     "End of year.",
+		Sessions:    1,
 	}
 
 	if err := md.Write(s); err != nil {
@@ -108,5 +119,59 @@ func TestMarkdownFilename(t *testing.T) {
 	expected := filepath.Join(dir, "2026-12-25.md")
 	if _, err := os.Stat(expected); err != nil {
 		t.Errorf("expected file %s, got error: %v", expected, err)
+	}
+}
+
+func TestMarkdownRejectsConflictingOverwrite(t *testing.T) {
+	dir := t.TempDir()
+	md := NewMarkdown(dir)
+
+	first := &summary.Summary{
+		Date:        time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 10, 5, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC),
+		Content:     "scheduled recap",
+	}
+	if err := md.Write(first); err != nil {
+		t.Fatalf("unexpected initial write error: %v", err)
+	}
+
+	second := &summary.Summary{
+		Date:        time.Date(2026, 4, 11, 16, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 10, 16, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 11, 16, 0, 0, 0, time.UTC),
+		Content:     "manual recap",
+	}
+	err := md.Write(second)
+	if err == nil {
+		t.Fatal("expected conflicting overwrite to fail")
+	}
+	if !strings.Contains(err.Error(), "refusing to overwrite") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestMarkdownRejectsLegacyOverwriteWithoutMetadata(t *testing.T) {
+	dir := t.TempDir()
+	md := NewMarkdown(dir)
+
+	path := filepath.Join(dir, "2026-04-11.md")
+	if err := os.WriteFile(path, []byte("legacy recap\n"), 0o644); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	s := &summary.Summary{
+		Date:        time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 10, 5, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC),
+		Content:     "scheduled recap",
+	}
+
+	err := md.Write(s)
+	if err == nil {
+		t.Fatal("expected legacy overwrite to fail")
+	}
+	if !strings.Contains(err.Error(), "has no window metadata") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

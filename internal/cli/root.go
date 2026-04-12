@@ -12,7 +12,7 @@ type CLI struct {
 	Init     InitCmd     `cmd:"" help:"Setup jogai for the first time."`
 	Run      RunCmd      `cmd:"" help:"Generate a recap now."`
 	Schedule ScheduleCmd `cmd:"" help:"Manage scheduled recaps."`
-	Status   StatusCmd   `cmd:"" help:"Show current config and next scheduled run."`
+	Status   StatusCmd   `cmd:"" help:"Show current config and system health."`
 
 	Version VersionCmd `cmd:"" help:"Print version."`
 }

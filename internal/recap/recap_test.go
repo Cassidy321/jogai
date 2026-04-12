@@ -13,9 +13,9 @@ type mockParser struct {
 	sessions []parser.Session
 }
 
-func (m *mockParser) Name() string                                     { return "mock" }
-func (m *mockParser) Detect() bool                                     { return true }
-func (m *mockParser) Sessions(_ time.Time) ([]parser.Session, error)   { return m.sessions, nil }
+func (m *mockParser) Name() string                                   { return "mock" }
+func (m *mockParser) Detect() bool                                   { return true }
+func (m *mockParser) Sessions(_ time.Time) ([]parser.Session, error) { return m.sessions, nil }
 
 type mockWriter struct {
 	written *summary.Summary
@@ -67,17 +67,23 @@ func TestPipelineRun(t *testing.T) {
 	if s.Sessions != 1 {
 		t.Errorf("expected 1 session, got %d", s.Sessions)
 	}
+	if !s.WindowStart.Equal(since) || !s.WindowEnd.Equal(until) {
+		t.Errorf("expected window [%v, %v), got [%v, %v)", since, until, s.WindowStart, s.WindowEnd)
+	}
 	if w.written == nil {
 		t.Fatal("writer was not called")
 	}
 	if w.written.Content != "Test recap" {
 		t.Errorf("expected 'Test recap', got %q", w.written.Content)
 	}
+	if !w.written.WindowStart.Equal(since) || !w.written.WindowEnd.Equal(until) {
+		t.Errorf("writer got window [%v, %v)", w.written.WindowStart, w.written.WindowEnd)
+	}
 }
 
 func TestPipelineNoSessions(t *testing.T) {
 	p := &Pipeline{
-		Parser:     &mockParser{sessions: nil},
+		Parser: &mockParser{sessions: nil},
 		Summarizer: SummarizerFunc(func(_ context.Context, _ []parser.Session) (*summary.Summary, error) {
 			t.Fatal("summarizer should not be called when no sessions")
 			return nil, nil
@@ -130,5 +136,52 @@ func TestPipelineFiltersUntil(t *testing.T) {
 	}
 	if summarized != 1 {
 		t.Errorf("expected 1 session after until filter, got %d", summarized)
+	}
+}
+
+func TestPipelineTrimsMessagesAfterUntil(t *testing.T) {
+	sessions := []parser.Session{
+		{
+			ID:        "s1",
+			StartedAt: time.Date(2026, 4, 11, 4, 55, 0, 0, time.UTC),
+			EndedAt:   time.Date(2026, 4, 11, 5, 5, 0, 0, time.UTC),
+			Messages: []parser.Message{
+				{Role: "user", Content: "before", Timestamp: time.Date(2026, 4, 11, 4, 58, 0, 0, time.UTC)},
+				{Role: "assistant", Content: "after", Timestamp: time.Date(2026, 4, 11, 5, 5, 0, 0, time.UTC)},
+			},
+		},
+	}
+
+	var summarized []parser.Session
+	p := &Pipeline{
+		Parser: &mockParser{sessions: sessions},
+		Summarizer: SummarizerFunc(func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
+			summarized = s
+			return &summary.Summary{Sessions: len(s)}, nil
+		}),
+		Writer: &mockWriter{},
+	}
+
+	since := time.Date(2026, 4, 10, 5, 0, 0, 0, time.UTC)
+	until := time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC)
+
+	_, err := p.Run(context.Background(), since, until, until)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(summarized) != 1 {
+		t.Fatalf("expected 1 summarized session, got %d", len(summarized))
+	}
+	if len(summarized[0].Messages) != 1 {
+		t.Fatalf("expected 1 message after trimming, got %d", len(summarized[0].Messages))
+	}
+	if summarized[0].Messages[0].Content != "before" {
+		t.Fatalf("unexpected message content %q", summarized[0].Messages[0].Content)
+	}
+	if !summarized[0].StartedAt.Equal(summarized[0].Messages[0].Timestamp) {
+		t.Fatalf("expected startedAt to match first kept message, got %v", summarized[0].StartedAt)
+	}
+	if !summarized[0].EndedAt.Equal(summarized[0].Messages[0].Timestamp) {
+		t.Fatalf("expected endedAt to match last kept message, got %v", summarized[0].EndedAt)
 	}
 }

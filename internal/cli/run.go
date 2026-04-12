@@ -9,11 +9,14 @@ import (
 	"github.com/Cassidy321/jogai/internal/output"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/recap"
+	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 type RunCmd struct {
-	Since string `help:"Recap a specific day (YYYY-MM-DD). Defaults to last 24h." default:""`
+	Day       string `name:"day" aliases:"since" help:"Recap a specific day (YYYY-MM-DD)."`
+	Scheduled bool   `kong:"hidden"`
+	At        string `kong:"hidden"`
 }
 
 func (c *RunCmd) Run() error {
@@ -37,7 +40,8 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("claude Code not found — no sessions to parse")
 	}
 
-	since, until, err := c.timeWindow()
+	now := time.Now()
+	since, until, recapDate, err := c.timeWindow(now)
 	if err != nil {
 		return err
 	}
@@ -52,11 +56,6 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	recapDate := time.Now()
-	if c.Since != "" {
-		recapDate = since
-	}
-
 	s, err := p.Run(ctx, since, until, recapDate)
 	if err != nil {
 		return err
@@ -67,31 +66,34 @@ func (c *RunCmd) Run() error {
 		return nil
 	}
 
-	if c.Since == "" {
-		if err := config.SaveLastRun(time.Now()); err != nil {
-			return fmt.Errorf("save last run: %w", err)
-		}
-	}
-
 	fmt.Printf("Done! Recap written to %s\n", cfg.OutputDir)
 	return nil
 }
 
-func (c *RunCmd) timeWindow() (since, until time.Time, err error) {
-	if c.Since != "" {
-		day, parseErr := time.Parse("2006-01-02", c.Since)
-		if parseErr != nil {
-			return time.Time{}, time.Time{}, fmt.Errorf("invalid --since date %q — expected YYYY-MM-DD", c.Since)
-		}
-		return day, day.AddDate(0, 0, 1), nil
+func (c *RunCmd) timeWindow(now time.Time) (since, until, recapDate time.Time, err error) {
+	if c.Day != "" && c.Scheduled {
+		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("--day cannot be combined with --scheduled")
 	}
 
-	since, err = config.LoadLastRun()
-	if err != nil {
-		since = time.Now().Add(-24 * time.Hour)
-		if err != config.ErrNeverRun {
-			fmt.Printf("Warning: %v — falling back to last 24h\n", err)
+	if c.Day != "" {
+		day, parseErr := time.ParseInLocation("2006-01-02", c.Day, now.Location())
+		if parseErr != nil {
+			return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
 		}
+		return day, day.AddDate(0, 0, 1), day, nil
 	}
-	return since, time.Now(), nil
+
+	if c.Scheduled {
+		if c.At == "" {
+			return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("scheduled runs require --at HH:MM")
+		}
+		sched, parseErr := scheduler.ParseAt(c.At)
+		if parseErr != nil {
+			return time.Time{}, time.Time{}, time.Time{}, parseErr
+		}
+		since, until = scheduler.Window(sched, now)
+		return since, until, until, nil
+	}
+
+	return now.Add(-24 * time.Hour), now, now, nil
 }
