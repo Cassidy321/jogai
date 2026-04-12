@@ -63,6 +63,17 @@ func nextRun(sched Schedule, now time.Time) time.Time {
 	return candidate
 }
 
+// Window returns the fixed daily window anchored on the schedule time.
+// The returned interval is [since, until).
+func Window(sched Schedule, now time.Time) (since, until time.Time) {
+	until = time.Date(now.Year(), now.Month(), now.Day(),
+		sched.Hour, sched.Minute, 0, 0, now.Location())
+	if until.After(now) {
+		until = until.AddDate(0, 0, -1)
+	}
+	return until.AddDate(0, 0, -1), until
+}
+
 // New returns a Scheduler for the current OS.
 func New() (Scheduler, error) {
 	switch runtime.GOOS {

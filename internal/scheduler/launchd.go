@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,8 +28,14 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 	</dict>
 	<key>ProgramArguments</key>
 	<array>
+		<string>/usr/bin/caffeinate</string>
+		<string>-i</string>
+		<string>-s</string>
 		<string>{{.ExecPath}}</string>
 		<string>run</string>
+		<string>--scheduled</string>
+		<string>--at</string>
+		<string>{{printf "%02d:%02d" .Schedule.Hour .Schedule.Minute}}</string>
 	</array>
 	<key>StartCalendarInterval</key>
 	<dict>
@@ -81,8 +88,11 @@ func (l *launchd) plistPath() string {
 }
 
 func (l *launchd) isLoaded() bool {
-	err := exec.Command("launchctl", "list", launchdLabel).Run()
-	return err == nil
+	target := fmt.Sprintf("gui/%d/%s", os.Getuid(), launchdLabel)
+	cmd := exec.Command("launchctl", "print", target)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
 }
 
 func generatePlist(sched Schedule, execPath, claudeDir, logDir string) ([]byte, error) {

@@ -5,11 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 type Config struct {
@@ -72,69 +70,7 @@ func Save(cfg *Config) error {
 
 var (
 	ErrNotConfigured = fmt.Errorf("jogai not configured — run 'jogai init' first")
-	ErrNeverRun      = fmt.Errorf("jogai has never been run")
 )
-
-func LoadLastRun() (time.Time, error) {
-	dir, err := Dir()
-	if err != nil {
-		return time.Time{}, fmt.Errorf("resolve config dir: %w", err)
-	}
-
-	path := filepath.Join(dir, "last-run")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return time.Time{}, ErrNeverRun
-		}
-		return time.Time{}, fmt.Errorf("read last-run: %w", err)
-	}
-
-	t, err := time.Parse(time.RFC3339, string(data))
-	if err != nil {
-		return time.Time{}, fmt.Errorf("parse last-run: %w", err)
-	}
-
-	return t, nil
-}
-
-func SaveLastRun(t time.Time) error {
-	dir, err := Dir()
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create config dir: %w", err)
-	}
-
-	tmp, err := os.CreateTemp(dir, ".last-run-*")
-	if err != nil {
-		return fmt.Errorf("create temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	if _, err := tmp.WriteString(t.Format(time.RFC3339)); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write last-run: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close last-run: %w", err)
-	}
-
-	path := filepath.Join(dir, "last-run")
-	if runtime.GOOS == "windows" {
-		_ = os.Remove(path)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename last-run: %w", err)
-	}
-
-	return nil
-}
 
 func AcquireLock() (func(), error) {
 	dir, err := Dir()

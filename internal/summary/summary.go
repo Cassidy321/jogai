@@ -13,10 +13,12 @@ import (
 )
 
 type Summary struct {
-	Date     time.Time `json:"date"`
-	Content  string    `json:"content"`
-	Sessions int       `json:"sessions"`
-	Usage    Usage     `json:"usage"`
+	Date        time.Time `json:"date"`
+	WindowStart time.Time `json:"window_start"`
+	WindowEnd   time.Time `json:"window_end"`
+	Content     string    `json:"content"`
+	Sessions    int       `json:"sessions"`
+	Usage       Usage     `json:"usage"`
 }
 
 type Usage struct {
@@ -83,7 +85,7 @@ func classifyError(result string) error {
 	lower := strings.ToLower(result)
 	switch {
 	case strings.Contains(lower, "prompt is too long"):
-		return fmt.Errorf("too many sessions to summarize at once — try a shorter time window with --since")
+		return fmt.Errorf("too many sessions to summarize at once — try a shorter time window with --day")
 	case strings.Contains(lower, "rate limit"), strings.Contains(lower, "too many requests"):
 		return fmt.Errorf("rate limit reached — wait a few minutes and try again")
 	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "authentication"):

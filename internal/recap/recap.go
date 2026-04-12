@@ -43,9 +43,14 @@ func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (
 
 	var sessions []parser.Session
 	for _, s := range allSessions {
-		if s.StartedAt.Before(until) {
-			sessions = append(sessions, s)
+		msgs := messagesBefore(s.Messages, until)
+		if len(msgs) == 0 {
+			continue
 		}
+		s.Messages = msgs
+		s.StartedAt = msgs[0].Timestamp
+		s.EndedAt = msgs[len(msgs)-1].Timestamp
+		sessions = append(sessions, s)
 	}
 
 	if len(sessions) == 0 {
@@ -60,10 +65,25 @@ func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (
 	}
 
 	s.Date = recapDate
+	s.WindowStart = since
+	s.WindowEnd = until
 
 	if err := p.Writer.Write(s); err != nil {
 		return nil, fmt.Errorf("write output: %w", err)
 	}
 
 	return s, nil
+}
+
+func messagesBefore(messages []parser.Message, until time.Time) []parser.Message {
+	if len(messages) == 0 || messages[len(messages)-1].Timestamp.Before(until) {
+		return messages
+	}
+	var filtered []parser.Message
+	for _, m := range messages {
+		if m.Timestamp.Before(until) {
+			filtered = append(filtered, m)
+		}
+	}
+	return filtered
 }
