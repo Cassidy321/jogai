@@ -48,18 +48,6 @@ func (c *StatusCmd) Run() error {
 		fmt.Printf("  Output:    %s\n", cfg.OutputDir)
 	}
 
-	lastRun, err := config.LoadLastRun()
-	if err != nil {
-		if errors.Is(err, config.ErrNeverRun) {
-			fmt.Println("  Last run:  never")
-		} else {
-			fmt.Printf("  Last run:  ✗ error (%v)\n", err)
-			healthy = false
-		}
-	} else {
-		fmt.Printf("  Last run:  %s\n", lastRun.Format("Jan 02, 2006 15:04"))
-	}
-
 	if !healthy {
 		return fmt.Errorf("some checks failed — see above for details")
 	}

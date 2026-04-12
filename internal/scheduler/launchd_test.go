@@ -36,9 +36,15 @@ func TestGeneratePlist(t *testing.T) {
 
 	mustContain := []string{
 		"<string>com.jogai.daily</string>",
+		"<string>/usr/bin/caffeinate</string>",
+		"<string>-i</string>",
+		"<string>-s</string>",
 		"<string>/usr/local/bin/jogai</string>",
 		"<string>/Users/test/.local/bin:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>",
 		"<string>run</string>",
+		"<string>--scheduled</string>",
+		"<string>--at</string>",
+		"<string>09:00</string>",
 		"<key>Hour</key>",
 		"<integer>9</integer>",
 		"<key>Minute</key>",

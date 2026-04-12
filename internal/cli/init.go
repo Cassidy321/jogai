@@ -40,7 +40,7 @@ func (c *InitCmd) Run() error {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Where should recaps be saved?").
-				Description("Markdown files will be written here (works with Obsidian)").
+				Description("Markdown files will be written here (works great with Obsidian or any notes folder)").
 				Value(&outputDir).
 				Placeholder(defaultDir),
 		),
