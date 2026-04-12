@@ -9,7 +9,7 @@ jogai parses your [Claude Code](https://claude.com/product/claude-code) sessions
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install Cassidy321/tap/jogai
+brew install cassidy321/tap/jogai
 ```
 
 ### From source
