@@ -35,6 +35,9 @@ func TestBuildPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "daily recap") {
 		t.Error("prompt should mention daily recap")
 	}
+	if !strings.Contains(prompt, "Do not include frontmatter or a document title/heading") {
+		t.Error("prompt should forbid a generated title")
+	}
 	if !strings.Contains(prompt, "jogai") {
 		t.Error("prompt should include project name")
 	}

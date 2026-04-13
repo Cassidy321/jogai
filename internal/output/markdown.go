@@ -16,8 +16,10 @@ type Markdown struct {
 }
 
 const (
-	windowMetadataPrefix = "<!-- jogai-window "
-	windowMetadataSuffix = " -->"
+	frontmatterDelimiter = "---"
+	windowFieldPrefix    = "jogai_window:"
+	legacyMetadataPrefix = "<!-- jogai-window "
+	legacyMetadataSuffix = " -->"
 )
 
 func NewMarkdown(dir string) *Markdown {
@@ -29,7 +31,7 @@ func (m *Markdown) Write(s *summary.Summary) error {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	filename := fmt.Sprintf("%s.md", s.Date.Format("2006-01-02"))
+	filename := filenameFor(s)
 	path := filepath.Join(m.dir, filename)
 
 	if err := rejectConflictingOverwrite(path, s); err != nil {
@@ -64,11 +66,17 @@ func (m *Markdown) Write(s *summary.Summary) error {
 
 func renderContent(s *summary.Summary) string {
 	var b strings.Builder
-	if line, ok := windowMetadataLine(s); ok {
-		b.WriteString(line)
+	if frontmatter, ok := windowFrontmatter(s); ok {
+		b.WriteString(frontmatter)
+		b.WriteByte('\n')
 		b.WriteByte('\n')
 	}
-	b.WriteString(s.Content)
+	if title := titleLine(s); title != "" {
+		b.WriteString(title)
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+	}
+	b.WriteString(normalizeBody(s.Content))
 	b.WriteByte('\n')
 	return b.String()
 }
@@ -101,15 +109,15 @@ func rejectConflictingOverwrite(path string, s *summary.Summary) error {
 	)
 }
 
-func windowMetadataLine(s *summary.Summary) (string, bool) {
+func windowFrontmatter(s *summary.Summary) (string, bool) {
 	if s.WindowStart.IsZero() || s.WindowEnd.IsZero() {
 		return "", false
 	}
-	return fmt.Sprintf("%s%s %s%s",
-		windowMetadataPrefix,
-		s.WindowStart.Format(time.RFC3339),
-		s.WindowEnd.Format(time.RFC3339),
-		windowMetadataSuffix,
+	return fmt.Sprintf("%s\n# Managed by jogai. Do not edit manually.\n%s %q\n%s",
+		frontmatterDelimiter,
+		windowFieldPrefix,
+		windowRange(s.WindowStart, s.WindowEnd),
+		frontmatterDelimiter,
 	), true
 }
 
@@ -124,15 +132,47 @@ func readWindowMetadata(path string) (time.Time, time.Time, bool) {
 	if !scanner.Scan() {
 		return time.Time{}, time.Time{}, false
 	}
-	return parseWindowMetadata(scanner.Text())
+
+	first := scanner.Text()
+	if first == frontmatterDelimiter {
+		return parseWindowFrontmatter(scanner)
+	}
+	return parseLegacyWindowMetadata(first)
 }
 
-func parseWindowMetadata(line string) (time.Time, time.Time, bool) {
-	if !strings.HasPrefix(line, windowMetadataPrefix) || !strings.HasSuffix(line, windowMetadataSuffix) {
+func parseWindowFrontmatter(scanner *bufio.Scanner) (time.Time, time.Time, bool) {
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == frontmatterDelimiter {
+			break
+		}
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !strings.HasPrefix(line, windowFieldPrefix) {
+			continue
+		}
+		raw := strings.TrimSpace(strings.TrimPrefix(line, windowFieldPrefix))
+		raw = strings.Trim(raw, `"'`)
+		return parseWindowRange(raw)
+	}
+	return time.Time{}, time.Time{}, false
+}
+
+func parseLegacyWindowMetadata(line string) (time.Time, time.Time, bool) {
+	if !strings.HasPrefix(line, legacyMetadataPrefix) || !strings.HasSuffix(line, legacyMetadataSuffix) {
 		return time.Time{}, time.Time{}, false
 	}
-	body := strings.TrimSuffix(strings.TrimPrefix(line, windowMetadataPrefix), windowMetadataSuffix)
+	body := strings.TrimSuffix(strings.TrimPrefix(line, legacyMetadataPrefix), legacyMetadataSuffix)
 	parts := strings.Fields(body)
+	if len(parts) != 2 {
+		return time.Time{}, time.Time{}, false
+	}
+	return parseWindowRange(parts[0] + ".." + parts[1])
+}
+
+func parseWindowRange(raw string) (time.Time, time.Time, bool) {
+	parts := strings.SplitN(raw, "..", 2)
 	if len(parts) != 2 {
 		return time.Time{}, time.Time{}, false
 	}
@@ -145,4 +185,67 @@ func parseWindowMetadata(line string) (time.Time, time.Time, bool) {
 		return time.Time{}, time.Time{}, false
 	}
 	return start, end, true
+}
+
+func filenameFor(s *summary.Summary) string {
+	base := s.Date.Format("2006-01-02")
+	switch s.Kind {
+	case summary.KindSchedule:
+		return fmt.Sprintf("%s.schedule.md", base)
+	case summary.KindLast24h:
+		return fmt.Sprintf("%s.last24h.md", base)
+	default:
+		return fmt.Sprintf("%s.md", base)
+	}
+}
+
+func titleLine(s *summary.Summary) string {
+	switch s.Kind {
+	case summary.KindSchedule, summary.KindLast24h:
+		return fmt.Sprintf("## %s → %s",
+			s.WindowStart.Format("2006-01-02 15:04"),
+			s.WindowEnd.Format("2006-01-02 15:04"),
+		)
+	default:
+		return fmt.Sprintf("## %s", s.Date.Format("2006-01-02"))
+	}
+}
+
+func normalizeBody(content string) string {
+	lines := strings.Split(strings.TrimSpace(content), "\n")
+	if len(lines) == 0 {
+		return ""
+	}
+
+	i := 0
+	for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+		i++
+	}
+	if i < len(lines) && isDocumentTitle(lines[i]) {
+		i++
+		for i < len(lines) && strings.TrimSpace(lines[i]) == "" {
+			i++
+		}
+	}
+
+	return strings.Join(lines[i:], "\n")
+}
+
+func isDocumentTitle(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	hashes := 0
+	for hashes < len(trimmed) && trimmed[hashes] == '#' {
+		hashes++
+	}
+	if hashes == 0 || hashes > 2 {
+		return false
+	}
+	return hashes < len(trimmed) && trimmed[hashes] == ' '
+}
+
+func windowRange(start, end time.Time) string {
+	return start.Format(time.RFC3339) + ".." + end.Format(time.RFC3339)
 }
