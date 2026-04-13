@@ -2,6 +2,7 @@ package output
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -20,7 +21,14 @@ const (
 	windowFieldPrefix    = "jogai_window:"
 	legacyMetadataPrefix = "<!-- jogai-window "
 	legacyMetadataSuffix = " -->"
+	recapIndexFilename   = ".jogai-index.json"
 )
+
+type recapIndex map[string]indexEntry
+
+type indexEntry struct {
+	Window string `json:"window"`
+}
 
 func NewMarkdown(dir string) *Markdown {
 	return &Markdown{dir: dir}
@@ -33,12 +41,23 @@ func (m *Markdown) Write(s *summary.Summary) error {
 
 	filename := filenameFor(s)
 	path := filepath.Join(m.dir, filename)
+	indexPath := filepath.Join(m.dir, recapIndexFilename)
+	index, err := loadIndex(indexPath)
+	if err != nil {
+		return err
+	}
 
-	if err := rejectConflictingOverwrite(path, s); err != nil {
+	if err := rejectConflictingOverwrite(path, filename, s, index); err != nil {
 		return err
 	}
 
 	content := renderContent(s)
+	nextIndex := cloneIndex(index)
+	nextIndex[filename] = indexEntry{Window: windowRange(s.WindowStart, s.WindowEnd)}
+
+	if err := saveIndex(indexPath, nextIndex); err != nil {
+		return err
+	}
 
 	tmp, err := os.CreateTemp(m.dir, ".jogai-*.md")
 	if err != nil {
@@ -66,11 +85,6 @@ func (m *Markdown) Write(s *summary.Summary) error {
 
 func renderContent(s *summary.Summary) string {
 	var b strings.Builder
-	if frontmatter, ok := windowFrontmatter(s); ok {
-		b.WriteString(frontmatter)
-		b.WriteByte('\n')
-		b.WriteByte('\n')
-	}
 	if title := titleLine(s); title != "" {
 		b.WriteString(title)
 		b.WriteByte('\n')
@@ -81,7 +95,7 @@ func renderContent(s *summary.Summary) string {
 	return b.String()
 }
 
-func rejectConflictingOverwrite(path string, s *summary.Summary) error {
+func rejectConflictingOverwrite(path, filename string, s *summary.Summary, index recapIndex) error {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -89,7 +103,10 @@ func rejectConflictingOverwrite(path string, s *summary.Summary) error {
 		return fmt.Errorf("stat %s: %w", path, err)
 	}
 
-	windowStart, windowEnd, ok := readWindowMetadata(path)
+	windowStart, windowEnd, ok := readWindowIndex(index, filename)
+	if !ok {
+		windowStart, windowEnd, ok = readWindowMetadata(path)
+	}
 	if !ok {
 		return fmt.Errorf(
 			"refusing to overwrite %s — existing recap has no window metadata; delete it manually if you want to replace it",
@@ -109,18 +126,6 @@ func rejectConflictingOverwrite(path string, s *summary.Summary) error {
 	)
 }
 
-func windowFrontmatter(s *summary.Summary) (string, bool) {
-	if s.WindowStart.IsZero() || s.WindowEnd.IsZero() {
-		return "", false
-	}
-	return fmt.Sprintf("%s\n# Managed by jogai. Do not edit manually.\n%s %q\n%s",
-		frontmatterDelimiter,
-		windowFieldPrefix,
-		windowRange(s.WindowStart, s.WindowEnd),
-		frontmatterDelimiter,
-	), true
-}
-
 func readWindowMetadata(path string) (time.Time, time.Time, bool) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -138,6 +143,14 @@ func readWindowMetadata(path string) (time.Time, time.Time, bool) {
 		return parseWindowFrontmatter(scanner)
 	}
 	return parseLegacyWindowMetadata(first)
+}
+
+func readWindowIndex(index recapIndex, filename string) (time.Time, time.Time, bool) {
+	entry, ok := index[filename]
+	if !ok {
+		return time.Time{}, time.Time{}, false
+	}
+	return parseWindowRange(entry.Window)
 }
 
 func parseWindowFrontmatter(scanner *bufio.Scanner) (time.Time, time.Time, bool) {
@@ -248,4 +261,61 @@ func isDocumentTitle(line string) bool {
 
 func windowRange(start, end time.Time) string {
 	return start.Format(time.RFC3339) + ".." + end.Format(time.RFC3339)
+}
+
+func loadIndex(path string) (recapIndex, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return recapIndex{}, nil
+		}
+		return nil, fmt.Errorf("read recap index %s: %w", path, err)
+	}
+
+	var index recapIndex
+	if err := json.Unmarshal(data, &index); err != nil {
+		return nil, fmt.Errorf("parse recap index %s: %w", path, err)
+	}
+	if index == nil {
+		index = recapIndex{}
+	}
+	return index, nil
+}
+
+func cloneIndex(src recapIndex) recapIndex {
+	dst := make(recapIndex, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
+}
+
+func saveIndex(path string, index recapIndex) error {
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode recap index %s: %w", path, err)
+	}
+	data = append(data, '\n')
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".jogai-index-*.json")
+	if err != nil {
+		return fmt.Errorf("create recap index temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("write recap index temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("close recap index temp file: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("rename recap index %s: %w", path, err)
+	}
+	return nil
 }
