@@ -41,7 +41,7 @@ func (c *RunCmd) Run() error {
 	}
 
 	now := time.Now()
-	since, until, recapDate, err := c.timeWindow(now)
+	since, until, recapDate, kind, err := c.timeWindow(now)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := p.Run(ctx, since, until, recapDate)
+	s, err := p.Run(ctx, since, until, recapDate, kind)
 	if err != nil {
 		return err
 	}
@@ -70,30 +70,30 @@ func (c *RunCmd) Run() error {
 	return nil
 }
 
-func (c *RunCmd) timeWindow(now time.Time) (since, until, recapDate time.Time, err error) {
+func (c *RunCmd) timeWindow(now time.Time) (since, until, recapDate time.Time, kind summary.Kind, err error) {
 	if c.Day != "" && c.Scheduled {
-		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("--day cannot be combined with --scheduled")
+		return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("--day cannot be combined with --scheduled")
 	}
 
 	if c.Day != "" {
 		day, parseErr := time.ParseInLocation("2006-01-02", c.Day, now.Location())
 		if parseErr != nil {
-			return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
+			return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
 		}
-		return day, day.AddDate(0, 0, 1), day, nil
+		return day, day.AddDate(0, 0, 1), day, summary.KindDay, nil
 	}
 
 	if c.Scheduled {
 		if c.At == "" {
-			return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("scheduled runs require --at HH:MM")
+			return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("scheduled runs require --at HH:MM")
 		}
 		sched, parseErr := scheduler.ParseAt(c.At)
 		if parseErr != nil {
-			return time.Time{}, time.Time{}, time.Time{}, parseErr
+			return time.Time{}, time.Time{}, time.Time{}, "", parseErr
 		}
 		since, until = scheduler.Window(sched, now)
-		return since, until, until, nil
+		return since, until, until, summary.KindSchedule, nil
 	}
 
-	return now.Add(-24 * time.Hour), now, now, nil
+	return now.Add(-24 * time.Hour), now, now, summary.KindLast24h, nil
 }

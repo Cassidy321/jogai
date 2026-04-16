@@ -42,6 +42,12 @@ jogai run
 jogai run --day 2026-04-01
 ```
 
+Output files:
+
+- `jogai run --day 2026-04-01` → `2026-04-01.md`
+- scheduled runs → `YYYY-MM-DD.schedule.md`
+- `jogai run` (last 24h) → `YYYY-MM-DD.last24h.md`
+
 ### Schedule daily recaps
 
 ```bash
