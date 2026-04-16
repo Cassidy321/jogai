@@ -2,7 +2,6 @@ package output
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,18 +16,9 @@ type Markdown struct {
 }
 
 const (
-	frontmatterDelimiter = "---"
-	windowFieldPrefix    = "jogai_window:"
-	legacyMetadataPrefix = "<!-- jogai-window "
-	legacyMetadataSuffix = " -->"
-	recapIndexFilename   = ".jogai-index.json"
+	windowMarkerPrefix = "<!-- jogai-window "
+	windowMarkerSuffix = " -->"
 )
-
-type recapIndex map[string]indexEntry
-
-type indexEntry struct {
-	Window string `json:"window"`
-}
 
 func NewMarkdown(dir string) *Markdown {
 	return &Markdown{dir: dir}
@@ -41,23 +31,12 @@ func (m *Markdown) Write(s *summary.Summary) error {
 
 	filename := filenameFor(s)
 	path := filepath.Join(m.dir, filename)
-	indexPath := filepath.Join(m.dir, recapIndexFilename)
-	index, err := loadIndex(indexPath)
-	if err != nil {
-		return err
-	}
 
-	if err := rejectConflictingOverwrite(path, filename, s, index); err != nil {
+	if err := rejectConflictingOverwrite(path, s); err != nil {
 		return err
 	}
 
 	content := renderContent(s)
-	nextIndex := cloneIndex(index)
-	nextIndex[filename] = indexEntry{Window: windowRange(s.WindowStart, s.WindowEnd)}
-
-	if err := saveIndex(indexPath, nextIndex); err != nil {
-		return err
-	}
 
 	tmp, err := os.CreateTemp(m.dir, ".jogai-*.md")
 	if err != nil {
@@ -90,22 +69,24 @@ func renderContent(s *summary.Summary) string {
 		b.WriteByte('\n')
 		b.WriteByte('\n')
 	}
-	b.WriteString(normalizeBody(s.Content))
+	body := normalizeBody(s.Content)
+	if body != "" {
+		b.WriteString(body)
+		b.WriteByte('\n')
+		b.WriteByte('\n')
+	}
+	b.WriteString(windowMarker(s.WindowStart, s.WindowEnd))
 	b.WriteByte('\n')
 	return b.String()
 }
 
-func rejectConflictingOverwrite(path, filename string, s *summary.Summary, index recapIndex) error {
-	if _, err := os.Stat(path); err != nil {
+func rejectConflictingOverwrite(path string, s *summary.Summary) error {
+	windowStart, windowEnd, ok, err := readWindowMetadata(path)
+	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("stat %s: %w", path, err)
-	}
-
-	windowStart, windowEnd, ok := readWindowIndex(index, filename)
-	if !ok {
-		windowStart, windowEnd, ok = readWindowMetadata(path)
+		return fmt.Errorf("read window metadata for %s: %w", path, err)
 	}
 	if !ok {
 		return fmt.Errorf(
@@ -126,57 +107,36 @@ func rejectConflictingOverwrite(path, filename string, s *summary.Summary, index
 	)
 }
 
-func readWindowMetadata(path string) (time.Time, time.Time, bool) {
+func readWindowMetadata(path string) (time.Time, time.Time, bool, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return time.Time{}, time.Time{}, false
+		return time.Time{}, time.Time{}, false, err
 	}
 	defer func() { _ = f.Close() }()
 
+	var (
+		start time.Time
+		end   time.Time
+		found bool
+	)
 	scanner := bufio.NewScanner(f)
-	if !scanner.Scan() {
-		return time.Time{}, time.Time{}, false
-	}
-
-	first := scanner.Text()
-	if first == frontmatterDelimiter {
-		return parseWindowFrontmatter(scanner)
-	}
-	return parseLegacyWindowMetadata(first)
-}
-
-func readWindowIndex(index recapIndex, filename string) (time.Time, time.Time, bool) {
-	entry, ok := index[filename]
-	if !ok {
-		return time.Time{}, time.Time{}, false
-	}
-	return parseWindowRange(entry.Window)
-}
-
-func parseWindowFrontmatter(scanner *bufio.Scanner) (time.Time, time.Time, bool) {
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == frontmatterDelimiter {
-			break
+		if s, e, ok := parseWindowMarker(scanner.Text()); ok {
+			start, end, found = s, e, true
 		}
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if !strings.HasPrefix(line, windowFieldPrefix) {
-			continue
-		}
-		raw := strings.TrimSpace(strings.TrimPrefix(line, windowFieldPrefix))
-		raw = strings.Trim(raw, `"'`)
-		return parseWindowRange(raw)
 	}
-	return time.Time{}, time.Time{}, false
+	if err := scanner.Err(); err != nil {
+		return time.Time{}, time.Time{}, false, fmt.Errorf("scan %s: %w", path, err)
+	}
+	return start, end, found, nil
 }
 
-func parseLegacyWindowMetadata(line string) (time.Time, time.Time, bool) {
-	if !strings.HasPrefix(line, legacyMetadataPrefix) || !strings.HasSuffix(line, legacyMetadataSuffix) {
+func parseWindowMarker(line string) (time.Time, time.Time, bool) {
+	if !strings.HasPrefix(line, windowMarkerPrefix) || !strings.HasSuffix(line, windowMarkerSuffix) {
 		return time.Time{}, time.Time{}, false
 	}
-	body := strings.TrimSuffix(strings.TrimPrefix(line, legacyMetadataPrefix), legacyMetadataSuffix)
+	body := strings.TrimSuffix(strings.TrimPrefix(line, windowMarkerPrefix), windowMarkerSuffix)
 	parts := strings.Fields(body)
 	if len(parts) != 2 {
 		return time.Time{}, time.Time{}, false
@@ -207,21 +167,23 @@ func filenameFor(s *summary.Summary) string {
 		return fmt.Sprintf("%s.schedule.md", base)
 	case summary.KindLast24h:
 		return fmt.Sprintf("%s.last24h.md", base)
-	default:
+	case summary.KindDay:
 		return fmt.Sprintf("%s.md", base)
 	}
+	panic(fmt.Sprintf("unknown summary kind %q", s.Kind))
 }
 
 func titleLine(s *summary.Summary) string {
 	switch s.Kind {
 	case summary.KindSchedule, summary.KindLast24h:
-		return fmt.Sprintf("## %s → %s",
+		return fmt.Sprintf("# %s → %s",
 			s.WindowStart.Format("2006-01-02 15:04"),
 			s.WindowEnd.Format("2006-01-02 15:04"),
 		)
-	default:
-		return fmt.Sprintf("## %s", s.Date.Format("2006-01-02"))
+	case summary.KindDay:
+		return fmt.Sprintf("# %s", s.Date.Format("2006-01-02"))
 	}
+	panic(fmt.Sprintf("unknown summary kind %q", s.Kind))
 }
 
 func normalizeBody(content string) string {
@@ -246,76 +208,9 @@ func normalizeBody(content string) string {
 
 func isDocumentTitle(line string) bool {
 	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return false
-	}
-	hashes := 0
-	for hashes < len(trimmed) && trimmed[hashes] == '#' {
-		hashes++
-	}
-	if hashes == 0 || hashes > 2 {
-		return false
-	}
-	return hashes < len(trimmed) && trimmed[hashes] == ' '
+	return strings.HasPrefix(trimmed, "# ")
 }
 
-func windowRange(start, end time.Time) string {
-	return start.Format(time.RFC3339) + ".." + end.Format(time.RFC3339)
-}
-
-func loadIndex(path string) (recapIndex, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return recapIndex{}, nil
-		}
-		return nil, fmt.Errorf("read recap index %s: %w", path, err)
-	}
-
-	var index recapIndex
-	if err := json.Unmarshal(data, &index); err != nil {
-		return nil, fmt.Errorf("parse recap index %s: %w", path, err)
-	}
-	if index == nil {
-		index = recapIndex{}
-	}
-	return index, nil
-}
-
-func cloneIndex(src recapIndex) recapIndex {
-	dst := make(recapIndex, len(src))
-	for k, v := range src {
-		dst[k] = v
-	}
-	return dst
-}
-
-func saveIndex(path string, index recapIndex) error {
-	data, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		return fmt.Errorf("encode recap index %s: %w", path, err)
-	}
-	data = append(data, '\n')
-
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".jogai-index-*.json")
-	if err != nil {
-		return fmt.Errorf("create recap index temp file: %w", err)
-	}
-	tmpPath := tmp.Name()
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("write recap index temp file: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("close recap index temp file: %w", err)
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("rename recap index %s: %w", path, err)
-	}
-	return nil
+func windowMarker(start, end time.Time) string {
+	return windowMarkerPrefix + start.Format(time.RFC3339) + " " + end.Format(time.RFC3339) + windowMarkerSuffix
 }

@@ -19,7 +19,7 @@ func TestMarkdownWrite(t *testing.T) {
 		Kind:        summary.KindDay,
 		WindowStart: time.Date(2026, 4, 5, 20, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 6, 20, 0, 0, 0, time.UTC),
-		Content:     "## jogai\n\nWorked on the CLI parser.",
+		Content:     "# jogai\n\nWorked on the CLI parser.",
 		Sessions:    3,
 	}
 
@@ -37,26 +37,14 @@ func TestMarkdownWrite(t *testing.T) {
 	if !strings.Contains(content, "Worked on the CLI parser") {
 		t.Error("should contain summary content")
 	}
-	if strings.Contains(content, "## jogai") {
-		t.Error("should replace model heading with managed title")
+	if strings.Contains(content, "# jogai") {
+		t.Error("should strip model H1 heading")
 	}
-	if strings.Contains(content, "jogai_window:") || strings.Contains(content, "---") {
-		t.Error("should not contain frontmatter metadata")
+	if !strings.Contains(content, "<!-- jogai-window 2026-04-05T20:00:00Z 2026-04-06T20:00:00Z -->") {
+		t.Error("should contain machine window marker")
 	}
-	if !strings.Contains(content, "## 2026-04-06") {
+	if !strings.Contains(content, "# 2026-04-06") {
 		t.Error("should contain managed day title")
-	}
-
-	index, err := loadIndex(filepath.Join(dir, recapIndexFilename))
-	if err != nil {
-		t.Fatalf("read recap index: %v", err)
-	}
-	entry, ok := index["2026-04-06.md"]
-	if !ok {
-		t.Fatal("expected index entry for generated file")
-	}
-	if entry.Window != "2026-04-05T20:00:00Z..2026-04-06T20:00:00Z" {
-		t.Fatalf("unexpected index window %q", entry.Window)
 	}
 }
 
@@ -115,7 +103,7 @@ func TestMarkdownAtomicWrite(t *testing.T) {
 
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if strings.HasPrefix(e.Name(), ".jogai-") && e.Name() != recapIndexFilename {
+		if strings.HasPrefix(e.Name(), ".jogai-") {
 			t.Errorf("temp file left behind: %s", e.Name())
 		}
 	}
@@ -290,27 +278,19 @@ func TestMarkdownAcceptsLegacyCommentForSameWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read updated file: %v", err)
 	}
-	if strings.Contains(string(data), "jogai_window:") || strings.Contains(string(data), "---") {
-		t.Fatalf("expected rewritten file without frontmatter, got:\n%s", string(data))
-	}
-
-	index, err := loadIndex(filepath.Join(dir, recapIndexFilename))
-	if err != nil {
-		t.Fatalf("read recap index: %v", err)
-	}
-	if got := index["2026-04-11.schedule.md"].Window; got != "2026-04-10T05:00:00Z..2026-04-11T05:00:00Z" {
-		t.Fatalf("unexpected index window %q", got)
+	if !strings.Contains(string(data), "<!-- jogai-window 2026-04-10T05:00:00Z 2026-04-11T05:00:00Z -->") {
+		t.Fatalf("expected rewritten file with machine marker, got:\n%s", string(data))
 	}
 }
 
-func TestMarkdownAcceptsFrontmatterForSameWindow(t *testing.T) {
+func TestMarkdownUsesTrailingMarkerWhenBodyContainsOne(t *testing.T) {
 	dir := t.TempDir()
 	md := NewMarkdown(dir)
 
 	path := filepath.Join(dir, "2026-04-11.last24h.md")
-	legacy := "---\n# Managed by jogai. Do not edit manually.\njogai_window: \"2026-04-10T16:00:00Z..2026-04-11T16:00:00Z\"\n---\n\n## 2026-04-10 16:00 → 2026-04-11 16:00\n\nold recap\n"
-	if err := os.WriteFile(path, []byte(legacy), 0o644); err != nil {
-		t.Fatalf("write frontmatter file: %v", err)
+	echoed := "# 2026-04-10 16:00 → 2026-04-11 16:00\n\nSummary echoed a marker: <!-- jogai-window 2026-04-09T00:00:00Z 2026-04-10T00:00:00Z -->\nmore body\n\n<!-- jogai-window 2026-04-10T16:00:00Z 2026-04-11T16:00:00Z -->\n"
+	if err := os.WriteFile(path, []byte(echoed), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
 	}
 
 	s := &summary.Summary{
@@ -322,15 +302,7 @@ func TestMarkdownAcceptsFrontmatterForSameWindow(t *testing.T) {
 	}
 
 	if err := md.Write(s); err != nil {
-		t.Fatalf("expected overwrite to succeed, got %v", err)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read updated file: %v", err)
-	}
-	if strings.Contains(string(data), "jogai_window:") || strings.Contains(string(data), "---") {
-		t.Fatalf("expected rewritten file without frontmatter, got:\n%s", string(data))
+		t.Fatalf("expected trailing marker to authorize overwrite, got %v", err)
 	}
 }
 
