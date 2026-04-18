@@ -11,7 +11,52 @@ import (
 )
 
 type Config struct {
-	OutputDir string `json:"output_dir"`
+	OutputDir string    `json:"output_dir"`
+	DayEnd    TimeOfDay `json:"day_end"`
+}
+
+// TimeOfDay represents an hour-and-minute value in local time, used for the
+// dev-day boundary. Zero value "00:00" means calendar-day semantics.
+type TimeOfDay struct {
+	Hour   int
+	Minute int
+}
+
+func ParseTimeOfDay(s string) (TimeOfDay, error) {
+	parts := strings.Split(s, ":")
+	if len(parts) != 2 {
+		return TimeOfDay{}, fmt.Errorf("invalid time %q: expected HH:MM", s)
+	}
+	h, err := strconv.Atoi(parts[0])
+	if err != nil || h < 0 || h > 23 {
+		return TimeOfDay{}, fmt.Errorf("invalid hour %q: must be 00-23", parts[0])
+	}
+	m, err := strconv.Atoi(parts[1])
+	if err != nil || m < 0 || m > 59 {
+		return TimeOfDay{}, fmt.Errorf("invalid minute %q: must be 00-59", parts[1])
+	}
+	return TimeOfDay{Hour: h, Minute: m}, nil
+}
+
+func (t TimeOfDay) String() string {
+	return fmt.Sprintf("%02d:%02d", t.Hour, t.Minute)
+}
+
+func (t TimeOfDay) MarshalJSON() ([]byte, error) {
+	return json.Marshal(t.String())
+}
+
+func (t *TimeOfDay) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("day_end must be a string: %w", err)
+	}
+	parsed, err := ParseTimeOfDay(s)
+	if err != nil {
+		return err
+	}
+	*t = parsed
+	return nil
 }
 
 func Dir() (string, error) {
