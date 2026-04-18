@@ -6,15 +6,18 @@ import (
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
+	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/output"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/recap"
-	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 type RunCmd struct {
-	Day       string `name:"day" aliases:"since" help:"Recap a specific day (YYYY-MM-DD)."`
+	Day string `name:"day" help:"Recap a specific dev day (YYYY-MM-DD)."`
+
+	// Legacy flags from v0.4 plists. Accepted silently during the v0.5 transition
+	// so pre-existing launchd jobs keep working until they're regenerated.
 	Scheduled bool   `kong:"hidden"`
 	At        string `kong:"hidden"`
 }
@@ -41,11 +44,15 @@ func (c *RunCmd) Run() error {
 	}
 
 	now := time.Now()
-	since, until, recapDate, kind, err := c.timeWindow(now)
+	since, until, recapDate, err := c.window(now, cfg.DayEnd)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Parsing sessions from %s to %s...\n", since.Format("Jan 02 15:04"), until.Format("Jan 02 15:04"))
+	fmt.Printf("Recapping dev day %s (%s → %s)\n",
+		recapDate.Format(devday.LabelFormat),
+		since.Format("Jan 02 15:04"),
+		until.Format("Jan 02 15:04"),
+	)
 
 	p := &recap.Pipeline{
 		Parser:     cc,
@@ -56,7 +63,7 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := p.Run(ctx, since, until, recapDate, kind)
+	s, err := p.Run(ctx, since, until, recapDate, summary.KindDay)
 	if err != nil {
 		return err
 	}
@@ -70,30 +77,24 @@ func (c *RunCmd) Run() error {
 	return nil
 }
 
-func (c *RunCmd) timeWindow(now time.Time) (since, until, recapDate time.Time, kind summary.Kind, err error) {
-	if c.Day != "" && c.Scheduled {
-		return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("--day cannot be combined with --scheduled")
+func (c *RunCmd) window(now time.Time, dayEnd config.TimeOfDay) (since, until, recapDate time.Time, err error) {
+	if c.Day == "" {
+		since, until, _ = devday.Previous(now, dayEnd)
+		return since, until, since, nil
 	}
 
-	if c.Day != "" {
-		day, parseErr := time.ParseInLocation("2006-01-02", c.Day, now.Location())
-		if parseErr != nil {
-			return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
-		}
-		return day, day.AddDate(0, 0, 1), day, summary.KindDay, nil
+	date, parseErr := time.ParseInLocation(devday.LabelFormat, c.Day, now.Location())
+	if parseErr != nil {
+		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
 	}
 
-	if c.Scheduled {
-		if c.At == "" {
-			return time.Time{}, time.Time{}, time.Time{}, "", fmt.Errorf("scheduled runs require --at HH:MM")
-		}
-		sched, parseErr := scheduler.ParseAt(c.At)
-		if parseErr != nil {
-			return time.Time{}, time.Time{}, time.Time{}, "", parseErr
-		}
-		since, until = scheduler.Window(sched, now)
-		return since, until, until, summary.KindSchedule, nil
+	since, until, _ = devday.FromDate(date, dayEnd)
+	if until.After(now) {
+		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf(
+			"dev day %s is not yet complete — window ends at %s",
+			c.Day,
+			until.Format("2006-01-02 15:04"),
+		)
 	}
-
-	return now.Add(-24 * time.Hour), now, now, summary.KindLast24h, nil
+	return since, until, since, nil
 }
