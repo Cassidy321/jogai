@@ -57,7 +57,7 @@ func TestPipelineRun(t *testing.T) {
 	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
-	s, err := p.Run(context.Background(), since, until, since, summary.KindDay)
+	s, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -70,9 +70,6 @@ func TestPipelineRun(t *testing.T) {
 	if !s.WindowStart.Equal(since) || !s.WindowEnd.Equal(until) {
 		t.Errorf("expected window [%v, %v), got [%v, %v)", since, until, s.WindowStart, s.WindowEnd)
 	}
-	if s.Kind != summary.KindDay {
-		t.Errorf("expected kind %q, got %q", summary.KindDay, s.Kind)
-	}
 	if w.written == nil {
 		t.Fatal("writer was not called")
 	}
@@ -81,9 +78,6 @@ func TestPipelineRun(t *testing.T) {
 	}
 	if !w.written.WindowStart.Equal(since) || !w.written.WindowEnd.Equal(until) {
 		t.Errorf("writer got window [%v, %v)", w.written.WindowStart, w.written.WindowEnd)
-	}
-	if w.written.Kind != summary.KindDay {
-		t.Errorf("writer got kind %q", w.written.Kind)
 	}
 }
 
@@ -100,7 +94,7 @@ func TestPipelineNoSessions(t *testing.T) {
 	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
-	s, err := p.Run(context.Background(), since, until, since, summary.KindDay)
+	s, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -136,7 +130,7 @@ func TestPipelineFiltersUntil(t *testing.T) {
 	since := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
 
-	_, err := p.Run(context.Background(), since, until, since, summary.KindDay)
+	_, err := p.Run(context.Background(), since, until, since)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -171,7 +165,7 @@ func TestPipelineTrimsMessagesAfterUntil(t *testing.T) {
 	since := time.Date(2026, 4, 10, 5, 0, 0, 0, time.UTC)
 	until := time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC)
 
-	_, err := p.Run(context.Background(), since, until, until, summary.KindSchedule)
+	_, err := p.Run(context.Background(), since, until, until)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
