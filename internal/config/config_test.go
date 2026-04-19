@@ -86,24 +86,51 @@ func TestTimeOfDayJSONRoundtrip(t *testing.T) {
 	}
 }
 
-func TestConfigMigrationMissingDayEnd(t *testing.T) {
-	// v0.4-style config without day_end should load with zero-value TimeOfDay
-	// (= 00:00 = calendar-day semantics).
-	v04 := []byte(`{"output_dir": "/tmp/test"}`)
+func TestConfigUnconfiguredDayEnd(t *testing.T) {
+	// A config without day_end (legacy or never-configured) unmarshals to a nil
+	// DayEnd so callers can distinguish "never set" from "explicitly 00:00".
+	raw := []byte(`{"output_dir": "/tmp/test"}`)
 
 	var cfg Config
-	if err := json.Unmarshal(v04, &cfg); err != nil {
-		t.Fatalf("unmarshal v0.4 config: %v", err)
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatalf("unmarshal: %v", err)
 	}
 
 	if cfg.OutputDir != "/tmp/test" {
 		t.Errorf("OutputDir = %q, want /tmp/test", cfg.OutputDir)
 	}
-	if cfg.DayEnd != (TimeOfDay{}) {
-		t.Errorf("DayEnd = %v, want zero value (00:00)", cfg.DayEnd)
+	if cfg.DayEnd != nil {
+		t.Errorf("DayEnd = %v, want nil", cfg.DayEnd)
 	}
-	if cfg.DayEnd.String() != "00:00" {
-		t.Errorf("DayEnd.String() = %q, want 00:00", cfg.DayEnd.String())
+}
+
+func TestConfigSetDayEndRoundtrip(t *testing.T) {
+	t0 := TimeOfDay{Hour: 5, Minute: 0}
+	cfg := Config{OutputDir: "/tmp/test", DayEnd: &t0}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var decoded Config
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if decoded.DayEnd == nil || *decoded.DayEnd != t0 {
+		t.Errorf("roundtrip: got %v, want &%v", decoded.DayEnd, t0)
+	}
+}
+
+func TestConfigMarshalOmitsNilDayEnd(t *testing.T) {
+	cfg := Config{OutputDir: "/tmp/test"}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if string(data) != `{"output_dir":"/tmp/test"}` {
+		t.Errorf("expected day_end to be omitted, got: %s", data)
 	}
 }
 

@@ -52,9 +52,12 @@ func (c *StatusCmd) Run() error {
 		fmt.Printf("  Output:     %s\n", cfg.OutputDir)
 	}
 
-	printScheduleLine()
-
-	if cfg != nil {
+	job, jobErr := loadScheduleJob()
+	printScheduleLine(job, jobErr)
+	if jobErr != nil || (job != nil && job.Active && job.At == nil) {
+		healthy = false
+	}
+	if cfg != nil && cfg.DayEnd != nil && job != nil && job.Active {
 		printStaleRunWarning(cfg, time.Now())
 	}
 
@@ -64,45 +67,43 @@ func (c *StatusCmd) Run() error {
 	return nil
 }
 
-func printScheduleLine() {
+func loadScheduleJob() (*scheduler.Job, error) {
 	s, err := scheduler.New()
 	if err != nil {
-		fmt.Printf("  Schedule:   ✗ error (%v)\n", err)
-		return
+		return nil, err
 	}
 	jobs, err := s.Status()
 	if err != nil || len(jobs) == 0 {
+		return nil, err
+	}
+	return &jobs[0], nil
+}
+
+func printScheduleLine(job *scheduler.Job, err error) {
+	switch {
+	case err != nil:
+		fmt.Printf("  Schedule:   ✗ error (%v)\n", err)
+	case job == nil:
 		fmt.Println("  Schedule:   unknown")
-		return
-	}
-	j := jobs[0]
-	if !j.Active {
+	case !job.Active:
 		fmt.Println("  Schedule:   none (run `jogai schedule start` to enable)")
-		return
+	case job.At == nil:
+		fmt.Println("  Schedule:   active but dev day boundary not configured — run `jogai init`")
+	default:
+		fmt.Printf("  Schedule:   daily at %s, next run %s\n",
+			job.At, job.NextRun.Format("2006-01-02 15:04"))
 	}
-	fmt.Printf("  Schedule:   daily at %s, next run %s\n",
-		j.At, j.NextRun.Format("2006-01-02 15:04"))
 }
 
 func printStaleRunWarning(cfg *config.Config, now time.Time) {
-	if cfg.OutputDir == "" {
+	if cfg.OutputDir == "" || cfg.DayEnd == nil {
 		return
 	}
-	s, err := scheduler.New()
-	if err != nil {
-		return
-	}
-	jobs, err := s.Status()
-	if err != nil || len(jobs) == 0 || !jobs[0].Active {
-		return
-	}
-
-	_, _, label := devday.Previous(now, cfg.DayEnd)
+	_, _, label := devday.Previous(now, *cfg.DayEnd)
 	expected := filepath.Join(cfg.OutputDir, label+".md")
 	if _, err := os.Stat(expected); err == nil {
 		return
 	}
-
 	fmt.Printf("\n  ! Last scheduled run didn't produce %s.\n", label+".md")
 	fmt.Printf("    Catch up with: jogai run --day %s\n", label)
 }

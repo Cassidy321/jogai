@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -161,11 +162,11 @@ func parseWindowRange(raw string) (time.Time, time.Time, bool) {
 }
 
 func filenameFor(s *summary.Summary) string {
-	return s.Date.Format("2006-01-02") + ".md"
+	return s.Date.Format(devday.LabelFormat) + ".md"
 }
 
 func titleLine(s *summary.Summary) string {
-	return "# " + s.Date.Format("2006-01-02")
+	return "# " + s.Date.Format(devday.LabelFormat)
 }
 
 func normalizeBody(content string) string {

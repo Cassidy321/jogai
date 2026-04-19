@@ -33,6 +33,9 @@ func (c *RunCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	if cfg.DayEnd == nil {
+		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
+	}
 
 	cc, err := parser.NewClaudeCode()
 	if err != nil {
@@ -44,12 +47,12 @@ func (c *RunCmd) Run() error {
 	}
 
 	now := time.Now()
-	since, until, recapDate, err := c.window(now, cfg.DayEnd)
+	since, until, err := c.window(now, *cfg.DayEnd)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("Recapping dev day %s (%s → %s)\n",
-		recapDate.Format(devday.LabelFormat),
+		since.Format(devday.LabelFormat),
 		since.Format("Jan 02 15:04"),
 		until.Format("Jan 02 15:04"),
 	)
@@ -63,7 +66,7 @@ func (c *RunCmd) Run() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	s, err := p.Run(ctx, since, until, recapDate)
+	s, err := p.Run(ctx, since, until, since)
 	if err != nil {
 		return err
 	}
@@ -77,24 +80,24 @@ func (c *RunCmd) Run() error {
 	return nil
 }
 
-func (c *RunCmd) window(now time.Time, dayEnd config.TimeOfDay) (since, until, recapDate time.Time, err error) {
+func (c *RunCmd) window(now time.Time, dayEnd config.TimeOfDay) (since, until time.Time, err error) {
 	if c.Day == "" {
 		since, until, _ = devday.Previous(now, dayEnd)
-		return since, until, since, nil
+		return since, until, nil
 	}
 
-	date, parseErr := time.ParseInLocation(devday.LabelFormat, c.Day, now.Location())
-	if parseErr != nil {
-		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
+	date, err := time.ParseInLocation(devday.LabelFormat, c.Day, now.Location())
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid --day date %q — expected YYYY-MM-DD", c.Day)
 	}
 
 	since, until, _ = devday.FromDate(date, dayEnd)
 	if until.After(now) {
-		return time.Time{}, time.Time{}, time.Time{}, fmt.Errorf(
+		return time.Time{}, time.Time{}, fmt.Errorf(
 			"dev day %s is not yet complete — window ends at %s",
 			c.Day,
 			until.Format("2006-01-02 15:04"),
 		)
 	}
-	return since, until, since, nil
+	return since, until, nil
 }

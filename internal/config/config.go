@@ -11,12 +11,12 @@ import (
 )
 
 type Config struct {
-	OutputDir string    `json:"output_dir"`
-	DayEnd    TimeOfDay `json:"day_end"`
+	OutputDir string     `json:"output_dir"`
+	DayEnd    *TimeOfDay `json:"day_end,omitempty"`
 }
 
 // TimeOfDay represents an hour-and-minute value in local time, used for the
-// dev-day boundary. Zero value "00:00" means calendar-day semantics.
+// dev-day boundary.
 type TimeOfDay struct {
 	Hour   int
 	Minute int

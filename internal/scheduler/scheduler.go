@@ -17,7 +17,7 @@ type Scheduler interface {
 
 // Job represents the scheduled daily recap.
 type Job struct {
-	At      string
+	At      *config.TimeOfDay
 	Active  bool
 	NextRun time.Time
 }

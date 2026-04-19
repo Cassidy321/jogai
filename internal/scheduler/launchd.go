@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -118,6 +119,9 @@ func (l *launchd) Install() error {
 	if err != nil {
 		return err
 	}
+	if cfg.DayEnd == nil {
+		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it before scheduling")
+	}
 
 	execPath, err := os.Executable()
 	if err != nil {
@@ -138,7 +142,7 @@ func (l *launchd) Install() error {
 		return fmt.Errorf("create log dir: %w", err)
 	}
 
-	plist, err := generatePlist(cfg.DayEnd, execPath, filepath.Dir(claudePath), logDir)
+	plist, err := generatePlist(*cfg.DayEnd, execPath, filepath.Dir(claudePath), logDir)
 	if err != nil {
 		return err
 	}
@@ -190,18 +194,18 @@ func (l *launchd) Uninstall() error {
 func (l *launchd) Status() ([]Job, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		if err == config.ErrNotConfigured {
+		if errors.Is(err, config.ErrNotConfigured) {
 			return []Job{{Active: false}}, nil
 		}
 		return nil, err
 	}
 
 	job := Job{
-		At:     cfg.DayEnd.String(),
+		At:     cfg.DayEnd,
 		Active: l.isLoaded(),
 	}
-	if job.Active {
-		job.NextRun = nextRun(cfg.DayEnd, time.Now())
+	if job.Active && cfg.DayEnd != nil {
+		job.NextRun = nextRun(*cfg.DayEnd, time.Now())
 	}
 
 	return []Job{job}, nil

@@ -72,7 +72,7 @@ func (c *InitCmd) Run() error {
 
 	cfg := &config.Config{
 		OutputDir: outputDir,
-		DayEnd:    parsedDayEnd,
+		DayEnd:    &parsedDayEnd,
 	}
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -101,7 +101,7 @@ func defaultOutputDir(existing *config.Config, fallback string) string {
 }
 
 func defaultDayEnd(existing *config.Config) string {
-	if existing != nil {
+	if existing != nil && existing.DayEnd != nil {
 		return existing.DayEnd.String()
 	}
 	return "00:00"

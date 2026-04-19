@@ -26,8 +26,10 @@ func (c *ScheduleStartCmd) Run() error {
 	if err != nil {
 		return fmt.Errorf("read schedule status: %w", err)
 	}
-	if len(jobs) > 0 {
+	if len(jobs) > 0 && jobs[0].At != nil {
 		fmt.Printf("  ✓ schedule started (daily at %s)\n", jobs[0].At)
+	} else {
+		fmt.Println("  ✓ schedule started")
 	}
 	return nil
 }
@@ -58,11 +60,14 @@ func (c *ScheduleStatusCmd) Run() error {
 		return fmt.Errorf("get schedule status: %w", err)
 	}
 	for _, j := range jobs {
-		if j.Active {
+		switch {
+		case !j.Active:
+			fmt.Println("  ✗ not installed")
+		case j.At == nil:
+			fmt.Println("  ! active but dev day boundary not configured — run `jogai init`")
+		default:
 			fmt.Printf("  ✓ active — runs daily at %s (next: %s)\n",
 				j.At, j.NextRun.Format("2006-01-02 15:04"))
-		} else {
-			fmt.Println("  ✗ not installed")
 		}
 	}
 	return nil

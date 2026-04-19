@@ -29,15 +29,17 @@ func TestDefaultOutputDir(t *testing.T) {
 }
 
 func TestDefaultDayEnd(t *testing.T) {
+	tod5 := config.TimeOfDay{Hour: 5, Minute: 0}
+	tod1913 := config.TimeOfDay{Hour: 19, Minute: 13}
 	tests := []struct {
 		name     string
 		existing *config.Config
 		want     string
 	}{
 		{"no existing", nil, "00:00"},
-		{"zero value", &config.Config{}, "00:00"},
-		{"existing 05:00", &config.Config{DayEnd: config.TimeOfDay{Hour: 5, Minute: 0}}, "05:00"},
-		{"existing 19:13", &config.Config{DayEnd: config.TimeOfDay{Hour: 19, Minute: 13}}, "19:13"},
+		{"unconfigured day_end", &config.Config{}, "00:00"},
+		{"existing 05:00", &config.Config{DayEnd: &tod5}, "05:00"},
+		{"existing 19:13", &config.Config{DayEnd: &tod1913}, "19:13"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
