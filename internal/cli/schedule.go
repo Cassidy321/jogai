@@ -12,19 +12,23 @@ type ScheduleCmd struct {
 	Status ScheduleStatusCmd `cmd:"" help:"Show schedule status."`
 }
 
-type ScheduleStartCmd struct {
-	At string `help:"When to run (HH:MM)." default:""`
-}
+type ScheduleStartCmd struct{}
 
 func (c *ScheduleStartCmd) Run() error {
 	s, err := scheduler.New()
 	if err != nil {
 		return err
 	}
-	if err := s.Install(c.At); err != nil {
+	if err := s.Install(); err != nil {
 		return fmt.Errorf("install schedule: %w", err)
 	}
-	fmt.Printf("  ✓ schedule started (at %s)\n", scheduler.ResolveAt(c.At))
+	jobs, err := s.Status()
+	if err != nil {
+		return fmt.Errorf("read schedule status: %w", err)
+	}
+	if len(jobs) > 0 {
+		fmt.Printf("  ✓ schedule started (daily at %s)\n", jobs[0].At)
+	}
 	return nil
 }
 
