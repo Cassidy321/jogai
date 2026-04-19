@@ -14,21 +14,12 @@ import (
 
 type Summary struct {
 	Date        time.Time `json:"date"`
-	Kind        Kind      `json:"kind"`
 	WindowStart time.Time `json:"window_start"`
 	WindowEnd   time.Time `json:"window_end"`
 	Content     string    `json:"content"`
 	Sessions    int       `json:"sessions"`
 	Usage       Usage     `json:"usage"`
 }
-
-type Kind string
-
-const (
-	KindDay      Kind = "day"
-	KindSchedule Kind = "schedule"
-	KindLast24h  Kind = "last24h"
-)
 
 type Usage struct {
 	InputTokens  int     `json:"input_tokens"`

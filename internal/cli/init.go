@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,28 +34,36 @@ func (c *InitCmd) Run() error {
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
-	defaultDir := filepath.Join(home, "jogai-recaps")
 
-	var outputDir string
-	err = huh.NewForm(
+	existing, _ := config.Load()
+	if existing != nil {
+		fmt.Println("  ✓ Existing config found — press Enter to keep current values")
+	}
+
+	outputDir := defaultOutputDir(existing, filepath.Join(home, "jogai-recaps"))
+	dayEnd := defaultDayEnd(existing)
+
+	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Where should recaps be saved?").
 				Description("Markdown files will be written here (works great with Obsidian or any notes folder)").
-				Value(&outputDir).
-				Placeholder(defaultDir),
+				Value(&outputDir),
+			huh.NewInput().
+				Title("What time does your dev day end? (HH:MM)").
+				Description("Leave 00:00 for calendar days, or pick a morning hour to capture late-night sessions (e.g. 05:00)").
+				Value(&dayEnd).
+				Validate(validateTimeOfDay),
 		),
-	).Run()
-	if err != nil {
+	).WithTheme(jogaiTheme())
+	if err := form.Run(); err != nil {
 		return err
 	}
 
-	if outputDir == "" {
-		outputDir = defaultDir
-	}
-
-	if len(outputDir) >= 2 && outputDir[:2] == "~/" {
-		outputDir = filepath.Join(home, outputDir[2:])
+	outputDir = expandHome(outputDir, home)
+	parsedDayEnd, err := config.ParseTimeOfDay(dayEnd)
+	if err != nil {
+		return fmt.Errorf("invalid day_end: %w", err)
 	}
 
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
@@ -63,15 +72,65 @@ func (c *InitCmd) Run() error {
 
 	cfg := &config.Config{
 		OutputDir: outputDir,
+		DayEnd:    &parsedDayEnd,
 	}
-
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
 
 	fmt.Printf("\n  ✓ Config saved\n")
-	fmt.Printf("  ✓ Recaps will be written to %s\n\n", outputDir)
-	fmt.Println("Run 'jogai run' to generate your first recap.")
+	fmt.Printf("  ✓ Recaps will be written to %s\n", outputDir)
+	fmt.Printf("  ✓ Dev day ends at %s\n", parsedDayEnd)
 
+	if err := probeWriteAccess(outputDir); err != nil {
+		fmt.Printf("\n  ! Could not write to %s: %s\n", outputDir, err)
+		fmt.Println("    If macOS showed a permission prompt, accept it.")
+		fmt.Println("    Otherwise: System Settings → Privacy & Security → Files and Folders → grant access to jogai.")
+		return nil
+	}
+
+	fmt.Println("\nRun 'jogai run' to generate your first recap.")
+	return nil
+}
+
+func defaultOutputDir(existing *config.Config, fallback string) string {
+	if existing != nil && existing.OutputDir != "" {
+		return existing.OutputDir
+	}
+	return fallback
+}
+
+func defaultDayEnd(existing *config.Config) string {
+	if existing != nil && existing.DayEnd != nil {
+		return existing.DayEnd.String()
+	}
+	return "00:00"
+}
+
+func validateTimeOfDay(s string) error {
+	_, err := config.ParseTimeOfDay(s)
+	return err
+}
+
+func expandHome(path, home string) string {
+	if len(path) >= 2 && path[:2] == "~/" {
+		return filepath.Join(home, path[2:])
+	}
+	return path
+}
+
+// probeWriteAccess writes and removes a sentinel file in dir to surface macOS
+// TCC prompts during init, while the user is present to grant access, rather
+// than at 05:00 AM when the schedule first fires.
+func probeWriteAccess(dir string) error {
+	path := filepath.Join(dir, ".jogai-write-test")
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	_ = f.Close()
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	return nil
 }

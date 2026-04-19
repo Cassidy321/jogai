@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -161,29 +162,11 @@ func parseWindowRange(raw string) (time.Time, time.Time, bool) {
 }
 
 func filenameFor(s *summary.Summary) string {
-	base := s.Date.Format("2006-01-02")
-	switch s.Kind {
-	case summary.KindSchedule:
-		return fmt.Sprintf("%s.schedule.md", base)
-	case summary.KindLast24h:
-		return fmt.Sprintf("%s.last24h.md", base)
-	case summary.KindDay:
-		return fmt.Sprintf("%s.md", base)
-	}
-	panic(fmt.Sprintf("unknown summary kind %q", s.Kind))
+	return s.Date.Format(devday.LabelFormat) + ".md"
 }
 
 func titleLine(s *summary.Summary) string {
-	switch s.Kind {
-	case summary.KindSchedule, summary.KindLast24h:
-		return fmt.Sprintf("# %s → %s",
-			s.WindowStart.Format("2006-01-02 15:04"),
-			s.WindowEnd.Format("2006-01-02 15:04"),
-		)
-	case summary.KindDay:
-		return fmt.Sprintf("# %s", s.Date.Format("2006-01-02"))
-	}
-	panic(fmt.Sprintf("unknown summary kind %q", s.Kind))
+	return "# " + s.Date.Format(devday.LabelFormat)
 }
 
 func normalizeBody(content string) string {
