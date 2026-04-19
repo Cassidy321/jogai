@@ -55,7 +55,7 @@ func (c *InitCmd) Run() error {
 				Value(&dayEnd).
 				Validate(validateTimeOfDay),
 		),
-	)
+	).WithTheme(jogaiTheme())
 	if err := form.Run(); err != nil {
 		return err
 	}
