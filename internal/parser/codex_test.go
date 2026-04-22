@@ -79,3 +79,45 @@ func TestCodexParseSessionFile_Empty(t *testing.T) {
 		t.Errorf("expected nil session for empty file, got %+v", s)
 	}
 }
+
+func TestCodexDetect(t *testing.T) {
+	dir := t.TempDir()
+	c := &Codex{baseDir: filepath.Join(dir, "missing")}
+	if c.Detect() {
+		t.Error("Detect returned true for missing dir")
+	}
+	real := filepath.Join(dir, "real")
+	if err := os.MkdirAll(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	c2 := &Codex{baseDir: real}
+	if !c2.Detect() {
+		t.Error("Detect returned false for existing dir")
+	}
+}
+
+func TestCodexSessions_WalksDayDirs(t *testing.T) {
+	dir := t.TempDir()
+	day := filepath.Join(dir, "2026", "04", "14")
+	if err := os.MkdirAll(day, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src, err := os.ReadFile(filepath.Join("testdata", "codex_happy.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(day, "rollout-1.jsonl"), src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := &Codex{baseDir: dir}
+	sessions, err := c.Sessions(time.Date(2026, 4, 14, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(sessions) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(sessions))
+	}
+	if sessions[0].Tool != "codex" {
+		t.Errorf("Tool = %q, want codex", sessions[0].Tool)
+	}
+}
