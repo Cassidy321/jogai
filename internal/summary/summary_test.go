@@ -89,8 +89,8 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 	}
 }
 
-func TestGenerateNoSessions(t *testing.T) {
-	_, err := Generate(context.Background(), nil)
+func TestClaudeGenerateNoSessions(t *testing.T) {
+	_, err := Claude{}.Generate(context.Background(), nil)
 	if err == nil {
 		t.Error("expected error for empty sessions")
 	}

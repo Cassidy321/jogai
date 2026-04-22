@@ -33,7 +33,7 @@ func (c *StatusCmd) Run() error {
 		healthy = false
 	}
 
-	if err := summary.CheckCLI(); err != nil {
+	if err := (summary.Claude{}).CheckCLI(); err != nil {
 		fmt.Println("  Summarizer: ✗ claude CLI not found")
 		healthy = false
 	} else {

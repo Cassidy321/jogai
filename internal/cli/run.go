@@ -59,7 +59,7 @@ func (c *RunCmd) Run() error {
 
 	p := &recap.Pipeline{
 		Parser:     cc,
-		Summarizer: recap.SummarizerFunc(summary.Generate),
+		Summarizer: summary.Claude{},
 		Writer:     output.NewMarkdown(cfg.OutputDir),
 	}
 
