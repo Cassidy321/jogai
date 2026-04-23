@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -154,6 +155,8 @@ func runCLI(ctx context.Context, prompt string) (*cliResponse, error) {
 		"--output-format", "json",
 		"--no-session-persistence",
 	)
+	// Neutral CWD so claude's CLAUDE.md walk-up doesn't cross the user's home and trigger macOS TCC prompts.
+	cmd.Dir = os.TempDir()
 	cmd.Stdin = strings.NewReader(prompt)
 
 	var stderr bytes.Buffer
