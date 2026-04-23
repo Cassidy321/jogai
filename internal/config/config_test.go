@@ -143,3 +143,51 @@ func TestConfigUnmarshalInvalidDayEnd(t *testing.T) {
 		t.Errorf("expected error for invalid day_end, got nil")
 	}
 }
+
+func TestConfigRoundtrip_WithSourcesAndSummarizer(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	cfg := &Config{
+		OutputDir:  "/out",
+		DayEnd:     &TimeOfDay{Hour: 5, Minute: 0},
+		Sources:    []string{"claude-code", "codex"},
+		Summarizer: "codex",
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Sources) != 2 || got.Sources[0] != "claude-code" || got.Sources[1] != "codex" {
+		t.Errorf("Sources = %v", got.Sources)
+	}
+	if got.Summarizer != "codex" {
+		t.Errorf("Summarizer = %q", got.Summarizer)
+	}
+}
+
+func TestConfigRoundtrip_LegacyMissing(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	cfg := &Config{
+		OutputDir: "/out",
+		DayEnd:    &TimeOfDay{Hour: 0, Minute: 0},
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Sources != nil {
+		t.Errorf("Sources should be nil for legacy config, got %v", got.Sources)
+	}
+	if got.Summarizer != "" {
+		t.Errorf("Summarizer should be empty for legacy config, got %q", got.Summarizer)
+	}
+}
