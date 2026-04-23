@@ -117,3 +117,53 @@ func TestRunWindow_AcceptsLegacyFlagsButIgnoresThem(t *testing.T) {
 		t.Fatalf("legacy flags changed window behavior: since=%v until=%v", since, until)
 	}
 }
+
+func TestBuildActiveParsers_DefaultsToClaude(t *testing.T) {
+	cfg := &config.Config{}
+	parsers, err := buildActiveParsers(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsers) != 1 {
+		t.Fatalf("got %d parsers, want 1", len(parsers))
+	}
+	if parsers[0].Name() != "claude-code" {
+		t.Errorf("default should be claude-code, got %q", parsers[0].Name())
+	}
+}
+
+func TestBuildActiveParsers_HonorsConfig(t *testing.T) {
+	cfg := &config.Config{Sources: []string{"codex"}}
+	parsers, err := buildActiveParsers(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(parsers) != 1 {
+		t.Fatalf("got %d parsers, want 1", len(parsers))
+	}
+	if parsers[0].Name() != "codex" {
+		t.Errorf("got %q, want codex", parsers[0].Name())
+	}
+}
+
+func TestBuildActiveParsers_UnknownSource(t *testing.T) {
+	cfg := &config.Config{Sources: []string{"cursor"}}
+	_, err := buildActiveParsers(cfg)
+	if err == nil {
+		t.Fatal("expected error for unknown source")
+	}
+}
+
+func TestSelectSummarizer_DefaultsToClaude(t *testing.T) {
+	s := selectSummarizer("")
+	if s.Name() != "claude" {
+		t.Errorf("default summarizer = %q, want claude", s.Name())
+	}
+}
+
+func TestSelectSummarizer_Codex(t *testing.T) {
+	s := selectSummarizer("codex")
+	if s.Name() != "codex" {
+		t.Errorf("got %q, want codex", s.Name())
+	}
+}
