@@ -261,3 +261,55 @@ func TestMarkdownKeepsFirstSectionHeadingInBody(t *testing.T) {
 		t.Fatalf("expected second section heading to be preserved, got:\n%s", content)
 	}
 }
+
+func TestMarkdown_WarningsHeader(t *testing.T) {
+	dir := t.TempDir()
+	w := NewMarkdown(dir)
+	s := &summary.Summary{
+		Date:        time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 21, 5, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 22, 5, 0, 0, 0, time.UTC),
+		Content:     "body here",
+		Warnings:    []string{"codex: permission denied on ~/.codex/sessions"},
+	}
+	if err := w.Write(s); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "2026-04-22.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := string(raw)
+	if !strings.Contains(got, "> ⚠ codex: permission denied") {
+		t.Errorf("warning header missing:\n%s", got)
+	}
+	if !strings.Contains(got, "Run `jogai status` for details") {
+		t.Errorf("help line missing")
+	}
+	if !strings.Contains(got, "body here") {
+		t.Errorf("body missing")
+	}
+	bodyPos := strings.Index(got, "body here")
+	warnPos := strings.Index(got, "> ⚠")
+	if warnPos > bodyPos {
+		t.Errorf("warning should appear before body")
+	}
+}
+
+func TestMarkdown_NoWarningsHeader(t *testing.T) {
+	dir := t.TempDir()
+	w := NewMarkdown(dir)
+	s := &summary.Summary{
+		Date:        time.Date(2026, 4, 22, 0, 0, 0, 0, time.UTC),
+		WindowStart: time.Date(2026, 4, 21, 5, 0, 0, 0, time.UTC),
+		WindowEnd:   time.Date(2026, 4, 22, 5, 0, 0, 0, time.UTC),
+		Content:     "clean body",
+	}
+	if err := w.Write(s); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "2026-04-22.md"))
+	if strings.Contains(string(raw), "⚠") {
+		t.Errorf("should have no warning marker:\n%s", raw)
+	}
+}
