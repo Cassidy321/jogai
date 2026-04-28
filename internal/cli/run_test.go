@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -165,5 +167,75 @@ func TestSelectSummarizer_Codex(t *testing.T) {
 	s := selectSummarizer("codex")
 	if s.Name() != "codex" {
 		t.Errorf("got %q, want codex", s.Name())
+	}
+}
+
+func TestRun_MultiSourcePartialFailureWritesWarningHeader(t *testing.T) {
+	// Stub Claude binary so CheckCLI passes and Generate returns a canned JSON response.
+	bindir := t.TempDir()
+	stub := `#!/bin/sh
+/bin/cat <<'EOF'
+{"result":"stub content","is_error":false,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}
+EOF
+`
+	if err := os.WriteFile(filepath.Join(bindir, "claude"), []byte(stub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bindir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Prepare HOME with jogai config, a claude session folder, and an unreadable codex day folder.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Minimal Claude Code session.
+	ccDir := filepath.Join(home, ".claude", "projects", "-tmp-test")
+	if err := os.MkdirAll(ccDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	line := `{"type":"user","sessionId":"s1","cwd":"/tmp/test","timestamp":"2026-04-21T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n" +
+		`{"type":"assistant","sessionId":"s1","cwd":"/tmp/test","timestamp":"2026-04-21T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}`
+	if err := os.WriteFile(filepath.Join(ccDir, "s1.jsonl"), []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Codex day dir: drop a stub file inside before chmod 0o000 so ReadDir surfaces a permission error.
+	cxDay := filepath.Join(home, ".codex", "sessions", "2026", "04", "21")
+	if err := os.MkdirAll(cxDay, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubFile := filepath.Join(cxDay, "rollout-stub.jsonl")
+	if err := os.WriteFile(stubFile, []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(cxDay, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(cxDay, 0o755) })
+
+	outDir := filepath.Join(home, "recaps")
+	cfgDir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfgJSON := `{"output_dir":"` + outDir + `","day_end":"00:00","sources":["claude-code","codex"],"summarizer":"claude"}`
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.json"), []byte(cfgJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := &RunCmd{Day: "2026-04-21"}
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outDir, "2026-04-21.md"))
+	if err != nil {
+		t.Fatalf("expected recap file: %v", err)
+	}
+	body := string(data)
+	if !strings.Contains(body, "> ⚠ codex:") {
+		t.Errorf("expected codex warning blockquote in markdown:\n%s", body)
+	}
+	if !strings.Contains(body, "stub content") {
+		t.Errorf("expected recap body from stub:\n%s", body)
 	}
 }
