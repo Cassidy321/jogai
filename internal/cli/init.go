@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 
 	"github.com/charmbracelet/huh"
@@ -14,27 +15,65 @@ import (
 
 type InitCmd struct{}
 
+type detectedSources struct {
+	claudeCode bool
+	codex      bool
+}
+
+func (d detectedSources) names() []string {
+	var out []string
+	if d.claudeCode {
+		out = append(out, "claude-code")
+	}
+	if d.codex {
+		out = append(out, "codex")
+	}
+	return out
+}
+
+type detectedSummarizers struct {
+	claude bool
+	codex  bool
+}
+
+func resolveSummarizer(det detectedSummarizers, existing string) string {
+	switch {
+	case det.claude && det.codex:
+		if existing == "claude" || existing == "codex" {
+			return existing
+		}
+		return "" // caller will prompt
+	case det.claude:
+		return "claude"
+	case det.codex:
+		return "codex"
+	default:
+		return ""
+	}
+}
+
 func (c *InitCmd) Run() error {
 	fmt.Println("jogai init — setting up your AI session recaps")
 	fmt.Println()
 
-	cc, err := parser.NewClaudeCode()
+	det, err := detectSources()
 	if err != nil {
 		return err
 	}
+	if !det.claudeCode && !det.codex {
+		return fmt.Errorf("no supported AI tool found — install Claude Code or Codex first")
+	}
+	printDetectedSources(det)
 
-	if cc.Detect() {
-		fmt.Println("  ✓ Claude Code detected")
-	} else {
-		fmt.Println("  ✗ Claude Code not found")
-		return fmt.Errorf("no supported AI tool found — install Claude Code first")
+	detSum := detectSummarizers()
+	if !detSum.claude && !detSum.codex {
+		return fmt.Errorf("no summarizer CLI found — install the `claude` or `codex` CLI")
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("resolve home dir: %w", err)
 	}
-
 	existing, _ := config.Load()
 	if existing != nil {
 		fmt.Println("  ✓ Existing config found — press Enter to keep current values")
@@ -43,7 +82,10 @@ func (c *InitCmd) Run() error {
 	outputDir := defaultOutputDir(existing, filepath.Join(home, "jogai-recaps"))
 	dayEnd := defaultDayEnd(existing)
 
-	form := huh.NewForm(
+	selectedSources := defaultSelectedSources(existing, det)
+	summarizer := resolveSummarizer(detSum, defaultSummarizer(existing))
+
+	groups := []*huh.Group{
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Where should recaps be saved?").
@@ -55,7 +97,37 @@ func (c *InitCmd) Run() error {
 				Value(&dayEnd).
 				Validate(validateTimeOfDay),
 		),
-	).WithTheme(jogaiTheme())
+	}
+
+	if len(det.names()) > 1 {
+		groups = append(groups, huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Which AI tools should jogai recap?").
+				Options(sourceOptions(det)...).
+				Value(&selectedSources).
+				Validate(func(v []string) error {
+					if len(v) == 0 {
+						return fmt.Errorf("select at least one source")
+					}
+					return nil
+				}),
+		))
+	}
+
+	if summarizer == "" {
+		groups = append(groups, huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Which CLI should generate the recap?").
+				Description("Both Claude Code and Codex CLIs are installed — pick the one you prefer for summaries").
+				Options(
+					huh.NewOption("Claude", "claude"),
+					huh.NewOption("Codex", "codex"),
+				).
+				Value(&summarizer),
+		))
+	}
+
+	form := huh.NewForm(groups...).WithTheme(jogaiTheme())
 	if err := form.Run(); err != nil {
 		return err
 	}
@@ -71,8 +143,10 @@ func (c *InitCmd) Run() error {
 	}
 
 	cfg := &config.Config{
-		OutputDir: outputDir,
-		DayEnd:    &parsedDayEnd,
+		OutputDir:  outputDir,
+		DayEnd:     &parsedDayEnd,
+		Sources:    selectedSources,
+		Summarizer: summarizer,
 	}
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
@@ -81,6 +155,8 @@ func (c *InitCmd) Run() error {
 	fmt.Printf("\n  ✓ Config saved\n")
 	fmt.Printf("  ✓ Recaps will be written to %s\n", outputDir)
 	fmt.Printf("  ✓ Dev day ends at %s\n", parsedDayEnd)
+	fmt.Printf("  ✓ Sources: %v\n", selectedSources)
+	fmt.Printf("  ✓ Summarizer: %s\n", summarizer)
 
 	if err := probeWriteAccess(outputDir); err != nil {
 		fmt.Printf("\n  ! Could not write to %s: %s\n", outputDir, err)
@@ -91,6 +167,62 @@ func (c *InitCmd) Run() error {
 
 	fmt.Println("\nRun 'jogai run' to generate your first recap.")
 	return nil
+}
+
+func detectSources() (detectedSources, error) {
+	cc, err := parser.NewClaudeCode()
+	if err != nil {
+		return detectedSources{}, err
+	}
+	cx, err := parser.NewCodex()
+	if err != nil {
+		return detectedSources{}, err
+	}
+	return detectedSources{claudeCode: cc.Detect(), codex: cx.Detect()}, nil
+}
+
+func printDetectedSources(d detectedSources) {
+	if d.claudeCode {
+		fmt.Println("  ✓ Claude Code detected")
+	} else {
+		fmt.Println("  ✗ Claude Code not found")
+	}
+	if d.codex {
+		fmt.Println("  ✓ Codex detected")
+	} else {
+		fmt.Println("  ✗ Codex not found")
+	}
+}
+
+func detectSummarizers() detectedSummarizers {
+	_, errC := exec.LookPath("claude")
+	_, errX := exec.LookPath("codex")
+	return detectedSummarizers{claude: errC == nil, codex: errX == nil}
+}
+
+func sourceOptions(d detectedSources) []huh.Option[string] {
+	var opts []huh.Option[string]
+	if d.claudeCode {
+		opts = append(opts, huh.NewOption("Claude Code", "claude-code"))
+	}
+	if d.codex {
+		opts = append(opts, huh.NewOption("Codex", "codex"))
+	}
+	return opts
+}
+
+func defaultSelectedSources(existing *config.Config, det detectedSources) []string {
+	if existing != nil && len(existing.Sources) > 0 {
+		return existing.Sources
+	}
+	return det.names()
+}
+
+func defaultSummarizer(existing *config.Config) string {
+	if existing != nil {
+		return existing.Summarizer
+	}
+	return ""
 }
 
 func defaultOutputDir(existing *config.Config, fallback string) string {

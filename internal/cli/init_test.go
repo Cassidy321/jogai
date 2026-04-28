@@ -89,3 +89,37 @@ func TestProbeWriteAccess_MissingDirectory(t *testing.T) {
 		t.Fatal("expected error for missing directory")
 	}
 }
+
+func TestDetectedSources_OnlyClaude(t *testing.T) {
+	det := detectedSources{claudeCode: true, codex: false}
+	got := det.names()
+	if len(got) != 1 || got[0] != "claude-code" {
+		t.Errorf("got %v, want [claude-code]", got)
+	}
+}
+
+func TestDetectedSources_Both(t *testing.T) {
+	det := detectedSources{claudeCode: true, codex: true}
+	got := det.names()
+	if len(got) != 2 {
+		t.Fatalf("got %v, want 2", got)
+	}
+}
+
+func TestDetectedSummarizers_PickOnlyOne(t *testing.T) {
+	got := resolveSummarizer(detectedSummarizers{claude: true, codex: false}, "")
+	if got != "claude" {
+		t.Errorf("got %q, want claude", got)
+	}
+	got = resolveSummarizer(detectedSummarizers{claude: false, codex: true}, "")
+	if got != "codex" {
+		t.Errorf("got %q, want codex", got)
+	}
+}
+
+func TestDetectedSummarizers_KeepsExistingWhenValid(t *testing.T) {
+	got := resolveSummarizer(detectedSummarizers{claude: true, codex: true}, "codex")
+	if got != "codex" {
+		t.Errorf("got %q, want codex", got)
+	}
+}
