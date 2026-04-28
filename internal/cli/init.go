@@ -85,49 +85,7 @@ func (c *InitCmd) Run() error {
 	selectedSources := defaultSelectedSources(existing, det)
 	summarizer := resolveSummarizer(detSum, defaultSummarizer(existing))
 
-	groups := []*huh.Group{
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Where should recaps be saved?").
-				Description("Markdown files will be written here (works great with Obsidian or any notes folder)").
-				Value(&outputDir),
-			huh.NewInput().
-				Title("What time does your dev day end? (HH:MM)").
-				Description("Leave 00:00 for calendar days, or pick a morning hour to capture late-night sessions (e.g. 05:00)").
-				Value(&dayEnd).
-				Validate(validateTimeOfDay),
-		),
-	}
-
-	if len(det.names()) > 1 {
-		groups = append(groups, huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Which AI tools should jogai recap?").
-				Options(sourceOptions(det)...).
-				Value(&selectedSources).
-				Validate(func(v []string) error {
-					if len(v) == 0 {
-						return fmt.Errorf("select at least one source")
-					}
-					return nil
-				}),
-		))
-	}
-
-	if summarizer == "" {
-		groups = append(groups, huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Which CLI should generate the recap?").
-				Description("Both Claude Code and Codex CLIs are installed — pick the one you prefer for summaries").
-				Options(
-					huh.NewOption("Claude", "claude"),
-					huh.NewOption("Codex", "codex"),
-				).
-				Value(&summarizer),
-		))
-	}
-
-	form := huh.NewForm(groups...).WithTheme(jogaiTheme())
+	form := buildInitForm(det, &outputDir, &dayEnd, &selectedSources, &summarizer)
 	if err := form.Run(); err != nil {
 		return err
 	}
@@ -167,6 +125,52 @@ func (c *InitCmd) Run() error {
 
 	fmt.Println("\nRun 'jogai run' to generate your first recap.")
 	return nil
+}
+
+func buildInitForm(det detectedSources, outputDir, dayEnd *string, selectedSources *[]string, summarizer *string) *huh.Form {
+	groups := []*huh.Group{
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Where should recaps be saved?").
+				Description("Markdown files will be written here (works great with Obsidian or any notes folder)").
+				Value(outputDir),
+			huh.NewInput().
+				Title("What time does your dev day end? (HH:MM)").
+				Description("Leave 00:00 for calendar days, or pick a morning hour to capture late-night sessions (e.g. 05:00)").
+				Value(dayEnd).
+				Validate(validateTimeOfDay),
+		),
+	}
+
+	if len(det.names()) > 1 {
+		groups = append(groups, huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("Which AI tools should jogai recap?").
+				Options(sourceOptions(det)...).
+				Value(selectedSources).
+				Validate(func(v []string) error {
+					if len(v) == 0 {
+						return fmt.Errorf("select at least one source")
+					}
+					return nil
+				}),
+		))
+	}
+
+	if *summarizer == "" {
+		groups = append(groups, huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Which CLI should generate the recap?").
+				Description("Both Claude Code and Codex CLIs are installed — pick the one you prefer for summaries").
+				Options(
+					huh.NewOption("Claude", "claude"),
+					huh.NewOption("Codex", "codex"),
+				).
+				Value(summarizer),
+		))
+	}
+
+	return huh.NewForm(groups...).WithTheme(jogaiTheme())
 }
 
 func detectSources() (detectedSources, error) {

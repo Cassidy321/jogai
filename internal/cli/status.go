@@ -24,51 +24,16 @@ func (c *StatusCmd) Run() error {
 	healthy := true
 
 	det, derr := detectSources()
-	if derr != nil {
-		fmt.Printf("  Sources:    ✗ error (%v)\n", derr)
+	if !printSourcesSection(cfg, det, derr) {
 		healthy = false
-	} else {
-		printSourcesStatus(det, cfg)
-		if cfg != nil && cfg.Sources != nil {
-			for _, name := range cfg.Sources {
-				if (name == "claude-code" && !det.claudeCode) || (name == "codex" && !det.codex) {
-					healthy = false
-				}
-			}
-		}
 	}
 
-	if det.codex && (cfg == nil || !containsString(cfg.Sources, "codex")) {
-		fmt.Println("  ℹ Codex detected but not enabled — run 'jogai init' to add it")
+	if !printSummarizerSection(cfg) {
+		healthy = false
 	}
 
-	summarizer := "claude"
-	if cfg != nil && cfg.Summarizer != "" {
-		summarizer = cfg.Summarizer
-	}
-	var sizer summary.Summarizer
-	switch summarizer {
-	case "codex":
-		sizer = summary.Codex{}
-	default:
-		sizer = summary.Claude{}
-	}
-	if err := sizer.CheckCLI(); err != nil {
-		fmt.Printf("  Summarizer: ✗ %s CLI not found\n", summarizer)
+	if !printOutputSection(cfg, cfgErr) {
 		healthy = false
-	} else {
-		fmt.Printf("  Summarizer: ✓ %s CLI\n", summarizer)
-	}
-
-	switch {
-	case errors.Is(cfgErr, config.ErrNotConfigured):
-		fmt.Println("  Output:     not configured — run 'jogai init'")
-		healthy = false
-	case cfgErr != nil:
-		fmt.Printf("  Output:     ✗ error (%v)\n", cfgErr)
-		healthy = false
-	default:
-		fmt.Printf("  Output:     %s\n", cfg.OutputDir)
 	}
 
 	job, jobErr := loadScheduleJob()
@@ -86,6 +51,60 @@ func (c *StatusCmd) Run() error {
 		return fmt.Errorf("some checks failed — see above for details")
 	}
 	return nil
+}
+
+func printSourcesSection(cfg *config.Config, det detectedSources, derr error) bool {
+	if derr != nil {
+		fmt.Printf("  Sources:    ✗ error (%v)\n", derr)
+		return false
+	}
+	healthy := true
+	printSourcesStatus(det, cfg)
+	if cfg != nil && cfg.Sources != nil {
+		for _, name := range cfg.Sources {
+			if (name == "claude-code" && !det.claudeCode) || (name == "codex" && !det.codex) {
+				healthy = false
+			}
+		}
+	}
+	if det.codex && (cfg == nil || !containsString(cfg.Sources, "codex")) {
+		fmt.Println("  ℹ Codex detected but not enabled — run 'jogai init' to add it")
+	}
+	return healthy
+}
+
+func printSummarizerSection(cfg *config.Config) bool {
+	summarizer := "claude"
+	if cfg != nil && cfg.Summarizer != "" {
+		summarizer = cfg.Summarizer
+	}
+	var sizer summary.Summarizer
+	switch summarizer {
+	case "codex":
+		sizer = summary.Codex{}
+	default:
+		sizer = summary.Claude{}
+	}
+	if err := sizer.CheckCLI(); err != nil {
+		fmt.Printf("  Summarizer: ✗ %s CLI not found\n", summarizer)
+		return false
+	}
+	fmt.Printf("  Summarizer: ✓ %s CLI\n", summarizer)
+	return true
+}
+
+func printOutputSection(cfg *config.Config, cfgErr error) bool {
+	switch {
+	case errors.Is(cfgErr, config.ErrNotConfigured):
+		fmt.Println("  Output:     not configured — run 'jogai init'")
+		return false
+	case cfgErr != nil:
+		fmt.Printf("  Output:     ✗ error (%v)\n", cfgErr)
+		return false
+	default:
+		fmt.Printf("  Output:     %s\n", cfg.OutputDir)
+		return true
+	}
 }
 
 func printSourcesStatus(det detectedSources, cfg *config.Config) {

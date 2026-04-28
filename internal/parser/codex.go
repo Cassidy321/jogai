@@ -113,58 +113,23 @@ func parseCodexSessionFile(path string) (*Session, error) {
 
 		switch line.Type {
 		case "session_meta":
-			var meta codexSessionMeta
-			if err := json.Unmarshal(line.Payload, &meta); err == nil {
-				sessionID = meta.ID
-				project = codexProject(meta.Cwd)
+			extractCodexSessionMeta(line, &sessionID, &project, &startedAt)
+		case "event_msg":
+			if msg, ok := extractCodexUserEvent(line); ok {
+				messages = append(messages, msg)
 				if startedAt.IsZero() {
 					startedAt = line.Timestamp
 				}
+				endedAt = line.Timestamp
 			}
-		case "event_msg":
-			var ev codexEventMsg
-			if err := json.Unmarshal(line.Payload, &ev); err != nil {
-				continue
-			}
-			if ev.Type != "user_message" || ev.Message == "" {
-				continue
-			}
-			messages = append(messages, Message{
-				Role:      "user",
-				Content:   ev.Message,
-				Timestamp: line.Timestamp,
-			})
-			if startedAt.IsZero() {
-				startedAt = line.Timestamp
-			}
-			endedAt = line.Timestamp
 		case "response_item":
-			var ri codexResponseItem
-			if err := json.Unmarshal(line.Payload, &ri); err != nil {
-				continue
-			}
-			if ri.Type != "message" || ri.Role != "assistant" {
-				continue
-			}
-			var parts []string
-			for _, b := range ri.Content {
-				if b.Type == "output_text" && b.Text != "" {
-					parts = append(parts, b.Text)
+			if msg, ok := extractCodexAssistantMessage(line); ok {
+				messages = append(messages, msg)
+				if startedAt.IsZero() {
+					startedAt = line.Timestamp
 				}
+				endedAt = line.Timestamp
 			}
-			text := strings.Join(parts, "\n")
-			if text == "" {
-				continue
-			}
-			messages = append(messages, Message{
-				Role:      "assistant",
-				Content:   text,
-				Timestamp: line.Timestamp,
-			})
-			if startedAt.IsZero() {
-				startedAt = line.Timestamp
-			}
-			endedAt = line.Timestamp
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -181,6 +146,58 @@ func parseCodexSessionFile(path string) (*Session, error) {
 		Project:   project,
 		Messages:  messages,
 	}, nil
+}
+
+func extractCodexSessionMeta(line codexLine, sessionID, project *string, startedAt *time.Time) {
+	var meta codexSessionMeta
+	if err := json.Unmarshal(line.Payload, &meta); err != nil {
+		return
+	}
+	*sessionID = meta.ID
+	*project = codexProject(meta.Cwd)
+	if startedAt.IsZero() {
+		*startedAt = line.Timestamp
+	}
+}
+
+func extractCodexUserEvent(line codexLine) (Message, bool) {
+	var ev codexEventMsg
+	if err := json.Unmarshal(line.Payload, &ev); err != nil {
+		return Message{}, false
+	}
+	if ev.Type != "user_message" || ev.Message == "" {
+		return Message{}, false
+	}
+	return Message{
+		Role:      "user",
+		Content:   ev.Message,
+		Timestamp: line.Timestamp,
+	}, true
+}
+
+func extractCodexAssistantMessage(line codexLine) (Message, bool) {
+	var ri codexResponseItem
+	if err := json.Unmarshal(line.Payload, &ri); err != nil {
+		return Message{}, false
+	}
+	if ri.Type != "message" || ri.Role != "assistant" {
+		return Message{}, false
+	}
+	var parts []string
+	for _, b := range ri.Content {
+		if b.Type == "output_text" && b.Text != "" {
+			parts = append(parts, b.Text)
+		}
+	}
+	text := strings.Join(parts, "\n")
+	if text == "" {
+		return Message{}, false
+	}
+	return Message{
+		Role:      "assistant",
+		Content:   text,
+		Timestamp: line.Timestamp,
+	}, true
 }
 
 func codexProject(cwd string) string {

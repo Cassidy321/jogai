@@ -24,7 +24,7 @@ func TestCodexParseSessionFile_Happy(t *testing.T) {
 	if len(s.Messages) != 4 {
 		t.Fatalf("got %d messages, want 4", len(s.Messages))
 	}
-	if s.Messages[0].Role != "user" || s.Messages[0].Content != "analyse la PR 2132" {
+	if s.Messages[0].Role != "user" || s.Messages[0].Content != "regarde la PR 2132" {
 		t.Errorf("msg[0] = %+v", s.Messages[0])
 	}
 	if s.Messages[1].Role != "assistant" || s.Messages[1].Content != "Je regarde la PR." {
