@@ -9,7 +9,7 @@ import (
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
-	"github.com/Cassidy321/jogai/internal/parser"
+	"github.com/Cassidy321/jogai/internal/lastrun"
 	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
@@ -20,33 +20,52 @@ func (c *StatusCmd) Run() error {
 	fmt.Println("jogai status")
 	fmt.Println()
 
+	cfg, cfgErr := config.Load()
 	healthy := true
 
-	cc, err := parser.NewClaudeCode()
-	if err != nil {
-		fmt.Printf("  Parser:     ✗ error (%v)\n", err)
-		healthy = false
-	} else if cc.Detect() {
-		fmt.Println("  Parser:     ✓ Claude Code")
-	} else {
-		fmt.Println("  Parser:     ✗ Claude Code not found")
-		healthy = false
-	}
-
-	if err := (summary.Claude{}).CheckCLI(); err != nil {
-		fmt.Println("  Summarizer: ✗ claude CLI not found")
+	det, derr := detectSources()
+	if derr != nil {
+		fmt.Printf("  Sources:    ✗ error (%v)\n", derr)
 		healthy = false
 	} else {
-		fmt.Println("  Summarizer: ✓ claude CLI")
+		printSourcesStatus(det, cfg)
+		if cfg != nil && cfg.Sources != nil {
+			for _, name := range cfg.Sources {
+				if (name == "claude-code" && !det.claudeCode) || (name == "codex" && !det.codex) {
+					healthy = false
+				}
+			}
+		}
 	}
 
-	cfg, err := config.Load()
+	if det.codex && (cfg == nil || !containsString(cfg.Sources, "codex")) {
+		fmt.Println("  ℹ Codex detected but not enabled — run 'jogai init' to add it")
+	}
+
+	summarizer := "claude"
+	if cfg != nil && cfg.Summarizer != "" {
+		summarizer = cfg.Summarizer
+	}
+	var sizer summary.Summarizer
+	switch summarizer {
+	case "codex":
+		sizer = summary.Codex{}
+	default:
+		sizer = summary.Claude{}
+	}
+	if err := sizer.CheckCLI(); err != nil {
+		fmt.Printf("  Summarizer: ✗ %s CLI not found\n", summarizer)
+		healthy = false
+	} else {
+		fmt.Printf("  Summarizer: ✓ %s CLI\n", summarizer)
+	}
+
 	switch {
-	case errors.Is(err, config.ErrNotConfigured):
+	case errors.Is(cfgErr, config.ErrNotConfigured):
 		fmt.Println("  Output:     not configured — run 'jogai init'")
 		healthy = false
-	case err != nil:
-		fmt.Printf("  Output:     ✗ error (%v)\n", err)
+	case cfgErr != nil:
+		fmt.Printf("  Output:     ✗ error (%v)\n", cfgErr)
 		healthy = false
 	default:
 		fmt.Printf("  Output:     %s\n", cfg.OutputDir)
@@ -61,10 +80,75 @@ func (c *StatusCmd) Run() error {
 		printStaleRunWarning(cfg, time.Now())
 	}
 
+	printLastRun()
+
 	if !healthy {
 		return fmt.Errorf("some checks failed — see above for details")
 	}
 	return nil
+}
+
+func printSourcesStatus(det detectedSources, cfg *config.Config) {
+	active := map[string]bool{}
+	if cfg != nil {
+		for _, s := range cfg.Sources {
+			active[s] = true
+		}
+	}
+	if cfg == nil || cfg.Sources == nil {
+		active["claude-code"] = true
+	}
+
+	if det.claudeCode {
+		mark := "✓"
+		if !active["claude-code"] {
+			mark = "·"
+		}
+		fmt.Printf("  Sources:    %s Claude Code\n", mark)
+	} else if active["claude-code"] {
+		fmt.Println("  Sources:    ✗ Claude Code (not installed, still in config)")
+	}
+
+	if det.codex {
+		mark := "✓"
+		if !active["codex"] {
+			mark = "·"
+		}
+		fmt.Printf("              %s Codex\n", mark)
+	} else if active["codex"] {
+		fmt.Println("              ✗ Codex (not installed, still in config)")
+	}
+}
+
+func printLastRun() {
+	r, err := lastrun.Load()
+	if err != nil {
+		fmt.Printf("  Last run:   ✗ error (%v)\n", err)
+		return
+	}
+	if r == nil {
+		return
+	}
+	fmt.Printf("  Last run:   %s (dev day %s) — %s\n",
+		r.RanAt.Local().Format("2006-01-02 15:04"),
+		r.DevDay,
+		r.Status,
+	)
+	for _, w := range r.Warnings {
+		fmt.Printf("              ⚠ %s\n", w)
+	}
+	if r.Error != "" {
+		fmt.Printf("              ✗ %s\n", r.Error)
+	}
+}
+
+func containsString(haystack []string, needle string) bool {
+	for _, s := range haystack {
+		if s == needle {
+			return true
+		}
+	}
+	return false
 }
 
 func loadScheduleJob() (*scheduler.Job, error) {
