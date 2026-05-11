@@ -79,19 +79,20 @@ jogai status
 ```
 jogai status
 
-  Parser:     ✓ Claude Code
+  Sources:    ✓ Claude Code
+              ✓ Codex
   Summarizer: ✓ claude CLI
   Output:     /Users/you/jogai-recaps
   Schedule:   daily at 05:00, next run 2026-04-20 05:00
+  Last run:   2026-04-19 05:00 (dev day 2026-04-18) — ok
 ```
 
-If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jogai status` displays the exact catch-up command.
+If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jogai status` displays the exact catch-up command. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body so partial failures are visible at the top of the file.
 
 ## Requirements
 
-- [Claude Code](https://claude.com/product/claude-code) installed and authenticated
-- [Codex CLI](https://github.com/openai/codex) (`codex`) — optional, usable as either a source or a summarizer
-- macOS for scheduling (Linux/Windows coming soon)
+- At least one of [Claude Code](https://claude.com/product/claude-code) or the [Codex CLI](https://github.com/openai/codex) installed and authenticated — either tool can act as a session source, a summarizer, or both. Install both to fuse Claude Code and Codex sessions into a single daily recap.
+- macOS for scheduling
 
 ## How It Works
 
