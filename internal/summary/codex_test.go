@@ -35,6 +35,21 @@ func TestCodexGenerateNoSessions(t *testing.T) {
 	}
 }
 
+func TestCodexGenerate_MissingCLIReportsPath(t *testing.T) {
+	t.Setenv("PATH", "")
+	sessions := []parser.Session{{
+		ID: "s1", Tool: "codex", Project: "jogai",
+		Messages: []parser.Message{{Role: "user", Content: "hi"}},
+	}}
+	_, err := Codex{}.Generate(context.Background(), sessions)
+	if err == nil {
+		t.Fatal("expected error for missing codex CLI")
+	}
+	if !strings.Contains(err.Error(), "not found in PATH") {
+		t.Errorf("error should mention PATH, got: %v", err)
+	}
+}
+
 func TestCodexGenerate_StubbedBinary(t *testing.T) {
 	dir := t.TempDir()
 	stubPath := filepath.Join(dir, "codex")

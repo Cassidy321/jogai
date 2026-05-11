@@ -95,3 +95,18 @@ func TestClaudeGenerateNoSessions(t *testing.T) {
 		t.Error("expected error for empty sessions")
 	}
 }
+
+func TestClaudeGenerate_MissingCLIReportsPath(t *testing.T) {
+	t.Setenv("PATH", "")
+	sessions := []parser.Session{{
+		ID: "s1", Tool: "claude-code", Project: "jogai",
+		Messages: []parser.Message{{Role: "user", Content: "hi"}},
+	}}
+	_, err := Claude{}.Generate(context.Background(), sessions)
+	if err == nil {
+		t.Fatal("expected error for missing claude CLI")
+	}
+	if !strings.Contains(err.Error(), "not found in PATH") {
+		t.Errorf("error should mention PATH, got: %v", err)
+	}
+}
