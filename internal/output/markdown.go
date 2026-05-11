@@ -70,6 +70,10 @@ func renderContent(s *summary.Summary) string {
 		b.WriteByte('\n')
 		b.WriteByte('\n')
 	}
+	if header := warningsHeader(s.Warnings); header != "" {
+		b.WriteString(header)
+		b.WriteByte('\n')
+	}
 	body := normalizeBody(s.Content)
 	if body != "" {
 		b.WriteString(body)
@@ -78,6 +82,20 @@ func renderContent(s *summary.Summary) string {
 	}
 	b.WriteString(windowMarker(s.WindowStart, s.WindowEnd))
 	b.WriteByte('\n')
+	return b.String()
+}
+
+func warningsHeader(warnings []string) string {
+	if len(warnings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, w := range warnings {
+		b.WriteString("> ⚠ ")
+		b.WriteString(w)
+		b.WriteByte('\n')
+	}
+	b.WriteString("> Run `jogai status` for details.\n\n")
 	return b.String()
 }
 

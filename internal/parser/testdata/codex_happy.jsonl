@@ -1,0 +1,5 @@
+{"timestamp":"2026-04-14T15:16:46.000Z","type":"session_meta","payload":{"id":"019d8c23-241a","timestamp":"2026-04-14T15:16:46.000Z","cwd":"/Users/cassidy/dokaa","originator":"codex-tui","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-04-14T15:16:50.000Z","type":"event_msg","payload":{"type":"user_message","message":"regarde la PR 2132","images":[]}}
+{"timestamp":"2026-04-14T15:17:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Je regarde la PR."}]}}
+{"timestamp":"2026-04-14T15:17:30.000Z","type":"event_msg","payload":{"type":"user_message","message":"merci"}}
+{"timestamp":"2026-04-14T15:17:45.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"De rien."}]}}
