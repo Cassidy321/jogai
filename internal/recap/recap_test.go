@@ -68,11 +68,8 @@ func TestPipelineRun(t *testing.T) {
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
 	s, err := p.Run(context.Background(), since, until, since)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s == nil {
-		t.Fatal("expected summary, got nil")
+	if err != nil || s == nil {
+		t.Fatalf("Run returned (%v, %v); want a non-nil summary", s, err)
 	}
 	if s.Sessions != 1 {
 		t.Errorf("expected 1 session, got %d", s.Sessions)
