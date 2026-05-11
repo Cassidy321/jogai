@@ -14,15 +14,9 @@ import (
 
 type Claude struct{}
 
-func (Claude) Name() string { return "claude" }
+func (Claude) Name() string { return NameClaude }
 
-func (Claude) CheckCLI() error {
-	_, err := exec.LookPath("claude")
-	if err != nil {
-		return fmt.Errorf("claude CLI not found in PATH — if running from a schedule, run `jogai schedule start` to refresh the PATH")
-	}
-	return nil
-}
+func (Claude) CheckCLI() error { return checkCLI(NameClaude) }
 
 func (c Claude) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
@@ -68,7 +62,7 @@ func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error)
 	if err := c.CheckCLI(); err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "claude",
+	cmd := exec.CommandContext(ctx, NameClaude,
 		"-p",
 		"--output-format", "json",
 		"--no-session-persistence",

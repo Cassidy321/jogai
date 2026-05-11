@@ -114,18 +114,18 @@ func (c *RunCmd) window(now time.Time, dayEnd config.TimeOfDay) (since, until ti
 func buildActiveParsers(cfg *config.Config) ([]parser.Parser, error) {
 	names := cfg.Sources
 	if len(names) == 0 {
-		names = []string{"claude-code"}
+		names = []string{parser.SourceClaudeCode}
 	}
 	var out []parser.Parser
 	for _, n := range names {
 		switch n {
-		case "claude-code":
+		case parser.SourceClaudeCode:
 			cc, err := parser.NewClaudeCode()
 			if err != nil {
 				return nil, fmt.Errorf("init claude-code: %w", err)
 			}
 			out = append(out, cc)
-		case "codex":
+		case parser.SourceCodex:
 			cx, err := parser.NewCodex()
 			if err != nil {
 				return nil, fmt.Errorf("init codex: %w", err)
@@ -140,7 +140,7 @@ func buildActiveParsers(cfg *config.Config) ([]parser.Parser, error) {
 
 func selectSummarizer(name string) summary.Summarizer {
 	switch name {
-	case "codex":
+	case summary.NameCodex:
 		return summary.Codex{}
 	default:
 		return summary.Claude{}
@@ -155,14 +155,14 @@ func writeLastRun(runErr error, warnings []string, devDay string, s *summary.Sum
 	}
 	switch {
 	case runErr != nil:
-		r.Status = "error"
+		r.Status = lastrun.StatusError
 		r.Error = runErr.Error()
 	case len(warnings) > 0 && s != nil:
-		r.Status = "partial"
+		r.Status = lastrun.StatusPartial
 	case s == nil:
-		r.Status = "empty"
+		r.Status = lastrun.StatusEmpty
 	default:
-		r.Status = "ok"
+		r.Status = lastrun.StatusOK
 	}
 	_ = lastrun.Save(r)
 }

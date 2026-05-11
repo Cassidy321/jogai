@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -22,7 +21,7 @@ func NewCodex() (*Codex, error) {
 	return &Codex{baseDir: filepath.Join(home, ".codex", "sessions")}, nil
 }
 
-func (c *Codex) Name() string { return "codex" }
+func (c *Codex) Name() string { return SourceCodex }
 
 func (c *Codex) Detect() bool {
 	info, err := os.Stat(c.baseDir)
@@ -30,7 +29,6 @@ func (c *Codex) Detect() bool {
 }
 
 func (c *Codex) Sessions(since time.Time) ([]Session, error) {
-	// Walk only day folders within the window.
 	start := since.Truncate(24 * time.Hour)
 	now := time.Now().UTC()
 	var sessions []Session
@@ -92,25 +90,15 @@ type codexResponseItem struct {
 }
 
 func parseCodexSessionFile(path string) (*Session, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = f.Close() }()
-
 	messages := make([]Message, 0, 128)
 	var sessionID, project string
 	var startedAt, endedAt time.Time
 
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 10*1024*1024), 10*1024*1024)
-
-	for scanner.Scan() {
+	err := scanJSONL(path, func(raw []byte) {
 		var line codexLine
-		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
-			continue
+		if err := json.Unmarshal(raw, &line); err != nil {
+			return
 		}
-
 		switch line.Type {
 		case "session_meta":
 			extractCodexSessionMeta(line, &sessionID, &project, &startedAt)
@@ -131,16 +119,17 @@ func parseCodexSessionFile(path string) (*Session, error) {
 				endedAt = line.Timestamp
 			}
 		}
+	})
+	if err != nil {
+		return nil, err
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
-	}
+
 	if len(messages) == 0 {
 		return nil, nil
 	}
 	return &Session{
 		ID:        sessionID,
-		Tool:      "codex",
+		Tool:      SourceCodex,
 		StartedAt: startedAt,
 		EndedAt:   endedAt,
 		Project:   project,
@@ -154,7 +143,7 @@ func extractCodexSessionMeta(line codexLine, sessionID, project *string, started
 		return
 	}
 	*sessionID = meta.ID
-	*project = codexProject(meta.Cwd)
+	*project = projectFromCwd(meta.Cwd)
 	if startedAt.IsZero() {
 		*startedAt = line.Timestamp
 	}
@@ -198,11 +187,4 @@ func extractCodexAssistantMessage(line codexLine) (Message, bool) {
 		Content:   text,
 		Timestamp: line.Timestamp,
 	}, true
-}
-
-func codexProject(cwd string) string {
-	if cwd == "" || cwd == "/" {
-		return "unknown"
-	}
-	return filepath.Base(cwd)
 }

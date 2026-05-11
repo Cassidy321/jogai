@@ -15,15 +15,9 @@ import (
 
 type Codex struct{}
 
-func (Codex) Name() string { return "codex" }
+func (Codex) Name() string { return NameCodex }
 
-func (Codex) CheckCLI() error {
-	_, err := exec.LookPath("codex")
-	if err != nil {
-		return fmt.Errorf("codex CLI not found in PATH — if running from a schedule, run `jogai schedule start` to refresh the PATH")
-	}
-	return nil
-}
+func (Codex) CheckCLI() error { return checkCLI(NameCodex) }
 
 func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
@@ -44,7 +38,7 @@ func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summar
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 	outPath := filepath.Join(tmpDir, "last_message.txt")
 
-	cmd := exec.CommandContext(ctx, "codex",
+	cmd := exec.CommandContext(ctx, NameCodex,
 		"exec",
 		"--skip-git-repo-check",
 		"-s", "read-only",

@@ -2,6 +2,7 @@ package parser
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"sync"
 	"time"
@@ -48,9 +49,7 @@ func (m *MultiParser) Sessions(since time.Time) ([]Session, error) {
 func (m *MultiParser) Warnings() []string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]string, len(m.warnings))
-	copy(out, m.warnings)
-	return out
+	return slices.Clone(m.warnings)
 }
 
 func (m *MultiParser) addWarning(w string) {

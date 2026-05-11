@@ -11,6 +11,7 @@ import (
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/parser"
+	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 type InitCmd struct{}
@@ -23,10 +24,10 @@ type detectedSources struct {
 func (d detectedSources) names() []string {
 	var out []string
 	if d.claudeCode {
-		out = append(out, "claude-code")
+		out = append(out, parser.SourceClaudeCode)
 	}
 	if d.codex {
-		out = append(out, "codex")
+		out = append(out, parser.SourceCodex)
 	}
 	return out
 }
@@ -39,14 +40,14 @@ type detectedSummarizers struct {
 func resolveSummarizer(det detectedSummarizers, existing string) string {
 	switch {
 	case det.claude && det.codex:
-		if existing == "claude" || existing == "codex" {
+		if existing == summary.NameClaude || existing == summary.NameCodex {
 			return existing
 		}
 		return "" // caller will prompt
 	case det.claude:
-		return "claude"
+		return summary.NameClaude
 	case det.codex:
-		return "codex"
+		return summary.NameCodex
 	default:
 		return ""
 	}
@@ -163,8 +164,8 @@ func buildInitForm(det detectedSources, outputDir, dayEnd *string, selectedSourc
 				Title("Which CLI should generate the recap?").
 				Description("Both Claude Code and Codex CLIs are installed — pick the one you prefer for summaries").
 				Options(
-					huh.NewOption("Claude", "claude"),
-					huh.NewOption("Codex", "codex"),
+					huh.NewOption("Claude", summary.NameClaude),
+					huh.NewOption("Codex", summary.NameCodex),
 				).
 				Value(summarizer),
 		))
@@ -207,10 +208,10 @@ func detectSummarizers() detectedSummarizers {
 func sourceOptions(d detectedSources) []huh.Option[string] {
 	var opts []huh.Option[string]
 	if d.claudeCode {
-		opts = append(opts, huh.NewOption("Claude Code", "claude-code"))
+		opts = append(opts, huh.NewOption("Claude Code", parser.SourceClaudeCode))
 	}
 	if d.codex {
-		opts = append(opts, huh.NewOption("Codex", "codex"))
+		opts = append(opts, huh.NewOption("Codex", parser.SourceCodex))
 	}
 	return opts
 }

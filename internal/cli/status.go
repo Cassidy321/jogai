@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
+	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
@@ -62,25 +64,25 @@ func printSourcesSection(cfg *config.Config, det detectedSources, derr error) bo
 	printSourcesStatus(det, cfg)
 	if cfg != nil && cfg.Sources != nil {
 		for _, name := range cfg.Sources {
-			if (name == "claude-code" && !det.claudeCode) || (name == "codex" && !det.codex) {
+			if (name == parser.SourceClaudeCode && !det.claudeCode) || (name == parser.SourceCodex && !det.codex) {
 				healthy = false
 			}
 		}
 	}
-	if det.codex && (cfg == nil || !containsString(cfg.Sources, "codex")) {
+	if det.codex && (cfg == nil || !slices.Contains(cfg.Sources, parser.SourceCodex)) {
 		fmt.Println("  ℹ Codex detected but not enabled — run 'jogai init' to add it")
 	}
 	return healthy
 }
 
 func printSummarizerSection(cfg *config.Config) bool {
-	summarizer := "claude"
+	summarizer := summary.NameClaude
 	if cfg != nil && cfg.Summarizer != "" {
 		summarizer = cfg.Summarizer
 	}
 	var sizer summary.Summarizer
 	switch summarizer {
-	case "codex":
+	case summary.NameCodex:
 		sizer = summary.Codex{}
 	default:
 		sizer = summary.Claude{}
@@ -115,26 +117,26 @@ func printSourcesStatus(det detectedSources, cfg *config.Config) {
 		}
 	}
 	if cfg == nil || cfg.Sources == nil {
-		active["claude-code"] = true
+		active[parser.SourceClaudeCode] = true
 	}
 
 	if det.claudeCode {
 		mark := "✓"
-		if !active["claude-code"] {
+		if !active[parser.SourceClaudeCode] {
 			mark = "·"
 		}
 		fmt.Printf("  Sources:    %s Claude Code\n", mark)
-	} else if active["claude-code"] {
+	} else if active[parser.SourceClaudeCode] {
 		fmt.Println("  Sources:    ✗ Claude Code (not installed, still in config)")
 	}
 
 	if det.codex {
 		mark := "✓"
-		if !active["codex"] {
+		if !active[parser.SourceCodex] {
 			mark = "·"
 		}
 		fmt.Printf("              %s Codex\n", mark)
-	} else if active["codex"] {
+	} else if active[parser.SourceCodex] {
 		fmt.Println("              ✗ Codex (not installed, still in config)")
 	}
 }
@@ -159,15 +161,6 @@ func printLastRun() {
 	if r.Error != "" {
 		fmt.Printf("              ✗ %s\n", r.Error)
 	}
-}
-
-func containsString(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if s == needle {
-			return true
-		}
-	}
-	return false
 }
 
 func loadScheduleJob() (*scheduler.Job, error) {

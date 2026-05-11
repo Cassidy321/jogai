@@ -4,10 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/parser"
+)
+
+const (
+	NameClaude = "claude"
+	NameCodex  = "codex"
 )
 
 type Summary struct {
@@ -30,6 +36,13 @@ type Summarizer interface {
 	Name() string
 	CheckCLI() error
 	Generate(ctx context.Context, sessions []parser.Session) (*Summary, error)
+}
+
+func checkCLI(bin string) error {
+	if _, err := exec.LookPath(bin); err != nil {
+		return fmt.Errorf("%s CLI not found in PATH — if running from a schedule, run `jogai schedule start` to refresh the PATH", bin)
+	}
+	return nil
 }
 
 func buildPrompt(sessions []parser.Session) (string, error) {

@@ -6,22 +6,33 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Cassidy321/jogai/internal/config"
+)
+
+type Status string
+
+const (
+	StatusOK      Status = "ok"
+	StatusPartial Status = "partial"
+	StatusError   Status = "error"
+	StatusEmpty   Status = "empty"
 )
 
 type Record struct {
 	RanAt    time.Time `json:"ran_at"`
 	DevDay   string    `json:"dev_day"`
-	Status   string    `json:"status"` // "ok" | "partial" | "error"
+	Status   Status    `json:"status"`
 	Error    string    `json:"error,omitempty"`
 	Warnings []string  `json:"warnings,omitempty"`
 }
 
 func path() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := config.Dir()
 	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
+		return "", err
 	}
-	return filepath.Join(home, ".config", "jogai", "last_run.json"), nil
+	return filepath.Join(dir, "last_run.json"), nil
 }
 
 func Save(r *Record) error {
