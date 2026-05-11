@@ -11,8 +11,10 @@ import (
 )
 
 type Config struct {
-	OutputDir string     `json:"output_dir"`
-	DayEnd    *TimeOfDay `json:"day_end,omitempty"`
+	OutputDir  string     `json:"output_dir"`
+	DayEnd     *TimeOfDay `json:"day_end,omitempty"`
+	Sources    []string   `json:"sources,omitempty"`
+	Summarizer string     `json:"summarizer,omitempty"`
 }
 
 // TimeOfDay represents an hour-and-minute value in local time, used for the

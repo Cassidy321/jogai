@@ -10,31 +10,16 @@ import (
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
-// Summarizer generates a summary from filtered sessions.
-type Summarizer interface {
-	Generate(ctx context.Context, sessions []parser.Session) (*summary.Summary, error)
-}
-
-// Writer writes a summary to persistent storage.
 type Writer interface {
 	Write(s *summary.Summary) error
 }
 
-// SummarizerFunc adapts a function to the Summarizer interface.
-type SummarizerFunc func(ctx context.Context, sessions []parser.Session) (*summary.Summary, error)
-
-func (f SummarizerFunc) Generate(ctx context.Context, sessions []parser.Session) (*summary.Summary, error) {
-	return f(ctx, sessions)
-}
-
-// Pipeline orchestrates the recap generation flow.
 type Pipeline struct {
 	Parser     parser.Parser
-	Summarizer Summarizer
+	Summarizer summary.Summarizer
 	Writer     Writer
 }
 
-// Run executes the full recap pipeline for sessions in the given time window.
 func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (*summary.Summary, error) {
 	allSessions, err := p.Parser.Sessions(since)
 	if err != nil {
@@ -53,6 +38,8 @@ func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (
 		sessions = append(sessions, s)
 	}
 
+	warnings := collectWarnings(p.Parser)
+
 	if len(sessions) == 0 {
 		return nil, nil
 	}
@@ -67,12 +54,20 @@ func (p *Pipeline) Run(ctx context.Context, since, until, recapDate time.Time) (
 	s.Date = recapDate
 	s.WindowStart = since
 	s.WindowEnd = until
+	s.Warnings = warnings
 
 	if err := p.Writer.Write(s); err != nil {
 		return nil, fmt.Errorf("write output: %w", err)
 	}
 
 	return s, nil
+}
+
+func collectWarnings(p parser.Parser) []string {
+	if w, ok := p.(interface{ Warnings() []string }); ok {
+		return w.Warnings()
+	}
+	return nil
 }
 
 func messagesBefore(messages []parser.Message, until time.Time) []parser.Message {

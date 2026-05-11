@@ -1,7 +1,6 @@
 package parser
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -25,7 +24,7 @@ func NewClaudeCode() (*ClaudeCode, error) {
 }
 
 func (c *ClaudeCode) Name() string {
-	return "claude-code"
+	return SourceClaudeCode
 }
 
 func (c *ClaudeCode) Detect() bool {
@@ -66,7 +65,6 @@ func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 				continue
 			}
 
-			// Filter messages by timestamp.
 			filtered := filterMessages(session.Messages, since)
 			if len(filtered) == 0 {
 				continue
@@ -91,61 +89,46 @@ type jsonlLine struct {
 	} `json:"message"`
 }
 
-// parseSessionFile reads all messages from a JSONL file without filtering.
 func parseSessionFile(path string) (*Session, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = file.Close() }()
-
 	messages := make([]Message, 0, 128)
 	var sessionID, project string
 	var startedAt, endedAt time.Time
 
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 10*1024*1024), 10*1024*1024)
-
-	for scanner.Scan() {
+	err := scanJSONL(path, func(raw []byte) {
 		var line jsonlLine
-		if err := json.Unmarshal(scanner.Bytes(), &line); err != nil {
-			continue
+		if err := json.Unmarshal(raw, &line); err != nil {
+			return
 		}
-
 		if line.Type != "user" && line.Type != "assistant" {
-			continue
+			return
 		}
-
 		if sessionID == "" {
 			sessionID = line.SessionID
-			project = decodeProjectPath(line.Cwd)
+			project = projectFromCwd(line.Cwd)
 			startedAt = line.Timestamp
 		}
 		endedAt = line.Timestamp
 
 		text := extractText(line.Message.Content)
 		if text == "" {
-			continue
+			return
 		}
-
 		messages = append(messages, Message{
 			Role:      line.Message.Role,
 			Content:   text,
 			Timestamp: line.Timestamp,
 		})
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan %s: %w", filepath.Base(path), err)
+	})
+	if err != nil {
+		return nil, err
 	}
 
 	if len(messages) == 0 {
 		return nil, nil
 	}
-
 	return &Session{
 		ID:        sessionID,
-		Tool:      "claude-code",
+		Tool:      SourceClaudeCode,
 		StartedAt: startedAt,
 		EndedAt:   endedAt,
 		Project:   project,
@@ -153,7 +136,6 @@ func parseSessionFile(path string) (*Session, error) {
 	}, nil
 }
 
-// filterMessages returns only messages at or after since.
 func filterMessages(messages []Message, since time.Time) []Message {
 	var filtered []Message
 	for _, m := range messages {
@@ -192,11 +174,4 @@ func extractText(raw json.RawMessage) string {
 	}
 
 	return ""
-}
-
-func decodeProjectPath(cwd string) string {
-	if cwd == "" {
-		return "unknown"
-	}
-	return filepath.Base(cwd)
 }

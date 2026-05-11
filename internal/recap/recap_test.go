@@ -26,6 +26,16 @@ func (m *mockWriter) Write(s *summary.Summary) error {
 	return nil
 }
 
+type fakeSummarizer struct {
+	fn func(ctx context.Context, sessions []parser.Session) (*summary.Summary, error)
+}
+
+func (f fakeSummarizer) Name() string    { return "fake" }
+func (f fakeSummarizer) CheckCLI() error { return nil }
+func (f fakeSummarizer) Generate(ctx context.Context, sessions []parser.Session) (*summary.Summary, error) {
+	return f.fn(ctx, sessions)
+}
+
 func TestPipelineRun(t *testing.T) {
 	sessions := []parser.Session{
 		{
@@ -44,13 +54,13 @@ func TestPipelineRun(t *testing.T) {
 	w := &mockWriter{}
 	p := &Pipeline{
 		Parser: &mockParser{sessions: sessions},
-		Summarizer: SummarizerFunc(func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
 			return &summary.Summary{
 				Date:     time.Now(),
 				Content:  "Test recap",
 				Sessions: len(s),
 			}, nil
-		}),
+		}},
 		Writer: w,
 	}
 
@@ -58,11 +68,8 @@ func TestPipelineRun(t *testing.T) {
 	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
 
 	s, err := p.Run(context.Background(), since, until, since)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s == nil {
-		t.Fatal("expected summary, got nil")
+	if err != nil || s == nil {
+		t.Fatalf("Run returned (%v, %v); want a non-nil summary", s, err)
 	}
 	if s.Sessions != 1 {
 		t.Errorf("expected 1 session, got %d", s.Sessions)
@@ -84,10 +91,10 @@ func TestPipelineRun(t *testing.T) {
 func TestPipelineNoSessions(t *testing.T) {
 	p := &Pipeline{
 		Parser: &mockParser{sessions: nil},
-		Summarizer: SummarizerFunc(func(_ context.Context, _ []parser.Session) (*summary.Summary, error) {
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, _ []parser.Session) (*summary.Summary, error) {
 			t.Fatal("summarizer should not be called when no sessions")
 			return nil, nil
-		}),
+		}},
 		Writer: &mockWriter{},
 	}
 
@@ -120,10 +127,10 @@ func TestPipelineFiltersUntil(t *testing.T) {
 	var summarized int
 	p := &Pipeline{
 		Parser: &mockParser{sessions: sessions},
-		Summarizer: SummarizerFunc(func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
 			summarized = len(s)
 			return &summary.Summary{Sessions: len(s)}, nil
-		}),
+		}},
 		Writer: &mockWriter{},
 	}
 
@@ -155,10 +162,10 @@ func TestPipelineTrimsMessagesAfterUntil(t *testing.T) {
 	var summarized []parser.Session
 	p := &Pipeline{
 		Parser: &mockParser{sessions: sessions},
-		Summarizer: SummarizerFunc(func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
 			summarized = s
 			return &summary.Summary{Sessions: len(s)}, nil
-		}),
+		}},
 		Writer: &mockWriter{},
 	}
 

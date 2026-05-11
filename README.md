@@ -2,7 +2,7 @@
 
 Turn your AI coding sessions into daily dev logs.
 
-jogai parses your [Claude Code](https://claude.com/product/claude-code) sessions, generates a summary using Claude, and saves it as a markdown file — ready for [Obsidian](https://obsidian.md) or any note-taking tool.
+jogai parses your [Claude Code](https://claude.com/product/claude-code) and [Codex](https://github.com/openai/codex) sessions, generates a summary using Claude or Codex, and saves it as a markdown file — ready for [Obsidian](https://obsidian.md) or any note-taking tool.
 
 ## Installation
 
@@ -21,7 +21,7 @@ go install github.com/Cassidy321/jogai/cmd/jogai@latest
 ## Quick Start
 
 ```bash
-# 1. Set up jogai (choose output folder + day boundary)
+# 1. Set up jogai (pick your sources, summarizer, output folder + day boundary)
 jogai init
 
 # 2. Generate your first recap
@@ -79,24 +79,26 @@ jogai status
 ```
 jogai status
 
-  Parser:     ✓ Claude Code
+  Sources:    ✓ Claude Code
+              ✓ Codex
   Summarizer: ✓ claude CLI
   Output:     /Users/you/jogai-recaps
   Schedule:   daily at 05:00, next run 2026-04-20 05:00
+  Last run:   2026-04-19 05:00 (dev day 2026-04-18) — ok
 ```
 
-If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jogai status` displays the exact catch-up command.
+If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jogai status` displays the exact catch-up command. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body so partial failures are visible at the top of the file.
 
 ## Requirements
 
-- [Claude Code](https://claude.com/product/claude-code) installed and authenticated
-- macOS for scheduling (Linux/Windows coming soon)
+- At least one of [Claude Code](https://claude.com/product/claude-code) or the [Codex CLI](https://github.com/openai/codex) installed and authenticated — either tool can act as a session source, a summarizer, or both. Install both to fuse Claude Code and Codex sessions into a single daily recap.
+- macOS for scheduling
 
 ## How It Works
 
-1. **Parse** — reads Claude Code session history from `~/.claude/projects/`
+1. **Parse** — reads session history from the sources you picked at `jogai init` (Claude Code from `~/.claude/projects/`, Codex from `~/.codex/sessions/`)
 2. **Filter** — collapses code blocks and truncates long messages to reduce tokens
-3. **Summarize** — sends filtered sessions to Claude for a concise recap
+3. **Summarize** — sends filtered sessions to your chosen summarizer (Claude or Codex) for a concise recap
 4. **Write** — saves the recap as `YYYY-MM-DD.md` in your output directory
 
 ## License
