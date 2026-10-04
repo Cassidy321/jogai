@@ -84,12 +84,17 @@ func repairSchedule() {
 }
 
 func (c *RunCmd) recapPending(cfg *config.Config) error {
-	parsers, err := buildActiveParsers(cfg)
+	sources, err := activeSources(cfg)
 	if err != nil {
 		return err
 	}
-	if len(parsers) == 0 {
+	if len(sources) == 0 {
 		return fmt.Errorf("no sources configured — run 'jogai init'")
+	}
+	archiveSessions(sources)
+	parsers := make([]parser.Parser, len(sources))
+	for i, s := range sources {
+		parsers[i] = s
 	}
 	sizer := selectSummarizer(cfg.Summarizer)
 	if err := sizer.CheckCLI(); err != nil {
@@ -254,12 +259,12 @@ func saveLastRun(results []recap.Day, warnings []string) {
 	_ = lastrun.Save(r)
 }
 
-func buildActiveParsers(cfg *config.Config) ([]parser.Parser, error) {
+func activeSources(cfg *config.Config) ([]parser.Source, error) {
 	names := cfg.Sources
 	if len(names) == 0 {
 		names = []string{parser.SourceClaudeCode}
 	}
-	var out []parser.Parser
+	var out []parser.Source
 	for _, n := range names {
 		switch n {
 		case parser.SourceClaudeCode:

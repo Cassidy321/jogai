@@ -3,10 +3,12 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/archive"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
@@ -113,7 +115,7 @@ func TestPendingSpans(t *testing.T) {
 
 func TestBuildActiveParsers_DefaultsToClaude(t *testing.T) {
 	cfg := &config.Config{}
-	parsers, err := buildActiveParsers(cfg)
+	parsers, err := activeSources(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +129,7 @@ func TestBuildActiveParsers_DefaultsToClaude(t *testing.T) {
 
 func TestBuildActiveParsers_HonorsConfig(t *testing.T) {
 	cfg := &config.Config{Sources: []string{"codex"}}
-	parsers, err := buildActiveParsers(cfg)
+	parsers, err := activeSources(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +143,7 @@ func TestBuildActiveParsers_HonorsConfig(t *testing.T) {
 
 func TestBuildActiveParsers_UnknownSource(t *testing.T) {
 	cfg := &config.Config{Sources: []string{"cursor"}}
-	_, err := buildActiveParsers(cfg)
+	_, err := activeSources(cfg)
 	if err == nil {
 		t.Fatal("expected error for unknown source")
 	}
@@ -251,18 +253,19 @@ echo '{"result":"stub content","is_error":false}'
 func writeClaudeSession(t *testing.T, home string, at ...time.Time) {
 	t.Helper()
 	var lines []string
-	for _, ts := range at {
+	for i, ts := range at {
 		stamp := ts.UTC().Format(time.RFC3339)
+		id := strconv.Itoa(i)
 		lines = append(lines,
-			`{"type":"user","sessionId":"s1","cwd":"/tmp/test","timestamp":"`+stamp+`","message":{"role":"user","content":"work"}}`,
-			`{"type":"assistant","sessionId":"s1","cwd":"/tmp/test","timestamp":"`+stamp+`","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}`,
+			`{"type":"user","uuid":"u`+id+`","sessionId":"s1","cwd":"/tmp/test","timestamp":"`+stamp+`","message":{"role":"user","content":"work"}}`,
+			`{"type":"assistant","uuid":"a`+id+`","sessionId":"s1","cwd":"/tmp/test","timestamp":"`+stamp+`","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}`,
 		)
 	}
 	dir := filepath.Join(home, ".claude", "projects", "-tmp-test")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "s1.jsonl"), []byte(strings.Join(lines, "\n")), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "s1.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -323,5 +326,18 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	}
 	if n := strings.Count(string(data), "call"); n != 2 {
 		t.Errorf("summarizer called %d times over two runs, want 2", n)
+	}
+
+	path, err := archive.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := archive.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = store.Close() }()
+	if st, err := store.Stats(); err != nil || st.Messages != 4 {
+		t.Errorf("archive stats = (%+v, %v), want the 4 session lines", st, err)
 	}
 }

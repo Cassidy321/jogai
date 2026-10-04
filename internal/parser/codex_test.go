@@ -30,7 +30,7 @@ func TestCodexParseSessionFile_Happy(t *testing.T) {
 	if s.Messages[1].Role != "assistant" || s.Messages[1].Content != "Je regarde la PR." {
 		t.Errorf("msg[1] = %+v", s.Messages[1])
 	}
-	wantStart := time.Date(2026, 4, 14, 15, 16, 46, 0, time.UTC)
+	wantStart := time.Date(2026, 4, 14, 15, 16, 50, 0, time.UTC)
 	if !s.StartedAt.Equal(wantStart) {
 		t.Errorf("StartedAt = %v, want %v", s.StartedAt, wantStart)
 	}

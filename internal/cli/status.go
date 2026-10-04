@@ -36,6 +36,9 @@ func (c *StatusCmd) Run() error {
 	if !printOutputSection(cfg, cfgErr) {
 		healthy = false
 	}
+	if !printArchiveLine() {
+		healthy = false
+	}
 
 	job, jobErr := loadScheduleJob()
 	printScheduleLine(job, jobErr)

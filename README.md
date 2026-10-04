@@ -69,6 +69,10 @@ Changing `day_end` with `jogai init` updates the schedule automatically, and so 
 
 When jogai is installed with Homebrew, the scheduled run upgrades it at most once a day (`brew upgrade cassidy321/tap/jogai`). To turn this off, add `"auto_update": false` to `~/.config/jogai/config.json`.
 
+### Session archive
+
+Claude Code deletes transcripts after about 30 days. Every run, jogai copies what is new in your interactive Claude Code and Codex sessions into a private archive (`~/.local/share/jogai/jogai.db`), so your history outlives that cleanup. Credentials (API keys, tokens, passwords in assignments or URLs) are masked before anything is stored, and automated sessions (SDK, `claude -p`, `codex exec`) are left out.
+
 ### Check system health
 
 ```bash
@@ -82,6 +86,7 @@ jogai status
               ✓ Codex
   Summarizer: ✓ claude CLI
   Output:     /Users/you/jogai-recaps
+  Archive:    12456 messages from 152 sessions, updated 2026-04-20 05:00
   Schedule:   daily at 05:00, next run 2026-04-20 05:00
   Last run:   2026-04-19 05:00 (dev day 2026-04-18) — ok
 ```
