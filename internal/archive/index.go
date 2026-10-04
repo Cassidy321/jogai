@@ -182,9 +182,14 @@ func replaceRecap(tx *sql.Tx, label, content string) error {
 		if sec.heading != "" {
 			title += " · " + sec.heading
 		}
+		var project string
+		err := tx.QueryRow(`SELECT key FROM projects WHERE name = ? COLLATE NOCASE AND key != '' LIMIT 1`, sec.heading).Scan(&project)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
 		if _, err := tx.Exec(`INSERT INTO docs(id, kind, session_id, project, git_branch, role, title, ts, text)
-			VALUES(?, 'recap', ?, '', '', '', ?, ?, ?)`,
-			fmt.Sprintf("%s#%d", session, i+1), session, title, day.UnixMilli(), sec.text); err != nil {
+			VALUES(?, 'recap', ?, ?, '', '', ?, ?, ?)`,
+			fmt.Sprintf("%s#%d", session, i+1), session, project, title, day.UnixMilli(), sec.text); err != nil {
 			return err
 		}
 	}
