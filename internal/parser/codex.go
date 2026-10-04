@@ -71,8 +71,9 @@ type codexLine struct {
 }
 
 type codexSessionMeta struct {
-	ID  string `json:"id"`
-	Cwd string `json:"cwd"`
+	ID         string `json:"id"`
+	Cwd        string `json:"cwd"`
+	Originator string `json:"originator"`
 }
 
 type codexEventMsg struct {
@@ -93,6 +94,7 @@ func parseCodexSessionFile(path string) (*Session, error) {
 	messages := make([]Message, 0, 128)
 	var sessionID, project string
 	var startedAt, endedAt time.Time
+	interactive := true
 
 	err := scanJSONL(path, func(raw []byte) {
 		var line codexLine
@@ -101,7 +103,7 @@ func parseCodexSessionFile(path string) (*Session, error) {
 		}
 		switch line.Type {
 		case "session_meta":
-			extractCodexSessionMeta(line, &sessionID, &project, &startedAt)
+			interactive = extractCodexSessionMeta(line, &sessionID, &project, &startedAt)
 		case "event_msg":
 			if msg, ok := extractCodexUserEvent(line); ok {
 				messages = append(messages, msg)
@@ -124,7 +126,7 @@ func parseCodexSessionFile(path string) (*Session, error) {
 		return nil, err
 	}
 
-	if len(messages) == 0 {
+	if !interactive || len(messages) == 0 {
 		return nil, nil
 	}
 	return &Session{
@@ -137,16 +139,19 @@ func parseCodexSessionFile(path string) (*Session, error) {
 	}, nil
 }
 
-func extractCodexSessionMeta(line codexLine, sessionID, project *string, startedAt *time.Time) {
+// Only TUI sessions are user work: SDK and `codex exec` runs are automation, and
+// the Claude Code plugin's runs already show up in the Claude Code transcript.
+func extractCodexSessionMeta(line codexLine, sessionID, project *string, startedAt *time.Time) bool {
 	var meta codexSessionMeta
 	if err := json.Unmarshal(line.Payload, &meta); err != nil {
-		return
+		return true
 	}
 	*sessionID = meta.ID
 	*project = projectFromCwd(meta.Cwd)
 	if startedAt.IsZero() {
 		*startedAt = line.Timestamp
 	}
+	return meta.Originator == "" || meta.Originator == "codex-tui"
 }
 
 func extractCodexUserEvent(line codexLine) (Message, bool) {

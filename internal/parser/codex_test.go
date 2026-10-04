@@ -36,16 +36,13 @@ func TestCodexParseSessionFile_Happy(t *testing.T) {
 	}
 }
 
-func TestCodexParseSessionFile_SDKCwd(t *testing.T) {
+func TestCodexParseSessionFile_SkipsAutomatedSessions(t *testing.T) {
 	s, err := parseCodexSessionFile(filepath.Join("testdata", "codex_sdk_cwd.jsonl"))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if s == nil {
-		t.Fatal("expected session")
-	}
-	if s.Project != "unknown" {
-		t.Errorf("Project = %q, want unknown", s.Project)
+	if s != nil {
+		t.Errorf("expected a codex_sdk_ts session to be skipped, got %+v", s)
 	}
 }
 
