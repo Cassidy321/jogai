@@ -16,22 +16,54 @@ var systemTextPrefixes = []string{
 	"<task-notification>",
 }
 
-func messageText(line jsonlLine) string {
-	if line.Type == "assistant" {
-		return extractText(line.Message.Content)
+func decodeClaudeLine(raw []byte) (Record, bool) {
+	var line jsonlLine
+	if json.Unmarshal(raw, &line) != nil {
+		return Record{}, false
 	}
-	if line.IsMeta || line.IsCompactSummary {
+	if line.Type == "ai-title" {
+		return Record{SessionID: line.SessionID, Source: SourceClaudeCode, Title: line.AITitle}, line.AITitle != ""
+	}
+	if line.Type != "user" && line.Type != "assistant" {
+		return Record{}, false
+	}
+	// SDK and `claude -p` runs come from other tools (SocaDB, scripts), not from dev work.
+	if line.Entrypoint != "" && line.Entrypoint != "cli" {
+		return Record{}, false
+	}
+	r := Record{
+		ID:        line.UUID,
+		SessionID: line.SessionID,
+		Source:    SourceClaudeCode,
+		Role:      line.Message.Role,
+		Text:      extractText(line.Message.Content),
+		Timestamp: line.Timestamp,
+		Cwd:       line.Cwd,
+		GitBranch: line.GitBranch,
+		IsMeta:    line.IsMeta,
+		IsCompact: line.IsCompactSummary,
+		Origin:    originKind(line.Origin),
+		// AskUserQuestion answers are stored in the tool result, not in the message text.
+		Answers: askUserAnswers(line.ToolUseResult),
+	}
+	return r, r.Text != "" || r.Answers != ""
+}
+
+func Clean(r Record) string {
+	if r.Role == "assistant" {
+		return r.Text
+	}
+	if r.IsMeta || r.IsCompact {
 		return ""
 	}
-	switch originKind(line.Origin) {
+	switch r.Origin {
 	case "task-notification", "peer":
 		return ""
 	}
-	if text := cleanUserText(extractText(line.Message.Content)); text != "" {
+	if text := cleanUserText(r.Text); text != "" {
 		return text
 	}
-	// AskUserQuestion answers are stored in the tool result, not in the message text.
-	return askUserAnswers(line.ToolUseResult)
+	return r.Answers
 }
 
 func originKind(raw json.RawMessage) string {

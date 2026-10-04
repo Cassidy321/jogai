@@ -80,6 +80,9 @@ func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 
 type jsonlLine struct {
 	Type             string    `json:"type"`
+	UUID             string    `json:"uuid"`
+	GitBranch        string    `json:"gitBranch"`
+	AITitle          string    `json:"aiTitle"`
 	SessionID        string    `json:"sessionId"`
 	Cwd              string    `json:"cwd"`
 	Timestamp        time.Time `json:"timestamp"`
@@ -102,33 +105,19 @@ func parseSessionFile(path string) (*Session, error) {
 	var startedAt, endedAt time.Time
 
 	err := scanJSONL(path, func(raw []byte) {
-		var line jsonlLine
-		if err := json.Unmarshal(raw, &line); err != nil {
-			return
-		}
-		if line.Type != "user" && line.Type != "assistant" {
-			return
-		}
-		// SDK and `claude -p` runs come from other tools (SocaDB, scripts), not from dev work.
-		if line.Entrypoint != "" && line.Entrypoint != "cli" {
+		r, ok := decodeClaudeLine(raw)
+		if !ok || r.Role == "" {
 			return
 		}
 		if sessionID == "" {
-			sessionID = line.SessionID
-			project = projectFromCwd(line.Cwd)
-			startedAt = line.Timestamp
+			sessionID = r.SessionID
+			project = projectFromCwd(r.Cwd)
+			startedAt = r.Timestamp
 		}
-		endedAt = line.Timestamp
-
-		text := messageText(line)
-		if text == "" {
-			return
+		endedAt = r.Timestamp
+		if text := Clean(r); text != "" {
+			messages = append(messages, Message{Role: r.Role, Content: text, Timestamp: r.Timestamp})
 		}
-		messages = append(messages, Message{
-			Role:      line.Message.Role,
-			Content:   text,
-			Timestamp: line.Timestamp,
-		})
 	})
 	if err != nil {
 		return nil, err

@@ -1,23 +1,19 @@
 package parser
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-func lineFrom(t *testing.T, raw string) jsonlLine {
+func decoded(t *testing.T, raw string) Record {
 	t.Helper()
-	var l jsonlLine
-	if err := json.Unmarshal([]byte(raw), &l); err != nil {
-		t.Fatalf("bad fixture %s: %v", raw, err)
-	}
-	return l
+	r, _ := decodeClaudeLine([]byte(raw))
+	return r
 }
 
-func TestMessageText(t *testing.T) {
+func TestClean(t *testing.T) {
 	tests := []struct {
 		name string
 		raw  string
@@ -40,10 +36,32 @@ func TestMessageText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := messageText(lineFrom(t, tt.raw)); got != tt.want {
-				t.Errorf("messageText = %q, want %q", got, tt.want)
+			if got := Clean(decoded(t, tt.raw)); got != tt.want {
+				t.Errorf("Clean = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestDecodeClaudeLine(t *testing.T) {
+	r, ok := decodeClaudeLine([]byte(`{"type":"user","uuid":"u1","sessionId":"s1","cwd":"/w/jogai","gitBranch":"feat/x","timestamp":"2026-04-05T10:00:00Z","isMeta":true,"origin":{"kind":"human"},"message":{"role":"user","content":"Base directory for this skill"}}`))
+	if !ok {
+		t.Fatal("a meta line is archived even though Clean drops it")
+	}
+	if r.ID != "u1" || r.SessionID != "s1" || r.Cwd != "/w/jogai" || r.GitBranch != "feat/x" || !r.IsMeta || r.Origin != "human" || r.Source != SourceClaudeCode {
+		t.Errorf("record = %+v", r)
+	}
+
+	title, ok := decodeClaudeLine([]byte(`{"type":"ai-title","aiTitle":"Refaire jogai","sessionId":"s1"}`))
+	if !ok || title.Title != "Refaire jogai" || title.SessionID != "s1" || title.Role != "" {
+		t.Errorf("title = (%+v, %v)", title, ok)
+	}
+
+	if _, ok := decodeClaudeLine([]byte(`{"type":"assistant","entrypoint":"sdk-cli","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}`)); ok {
+		t.Error("lines from SDK and `claude -p` runs must be skipped")
+	}
+	if _, ok := decodeClaudeLine([]byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}`)); ok {
+		t.Error("a line without text or answers has nothing to archive")
 	}
 }
 
