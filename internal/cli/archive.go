@@ -5,33 +5,58 @@ import (
 	"os"
 
 	"github.com/Cassidy321/jogai/internal/archive"
+	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/project"
 )
 
-func archiveSessions(sources []parser.Source) {
+type archiveEnv struct {
+	store    *archive.Store
+	sources  []parser.Source
+	resolver *project.Resolver
+	recapDir string
+}
+
+func openArchive(cfg *config.Config) (*archiveEnv, error) {
+	if cfg == nil {
+		cfg = &config.Config{}
+	}
+	sources, err := activeSources(cfg)
+	if err != nil {
+		return nil, err
+	}
+	resolver, err := project.NewResolver()
+	if err != nil {
+		return nil, err
+	}
 	path, err := archive.DefaultPath()
 	if err != nil {
-		logErrf("⚠ archive: %v", err)
-		return
+		return nil, err
 	}
 	store, err := archive.Open(path)
 	if err != nil {
-		logErrf("⚠ archive: %v", err)
-		return
+		return nil, err
 	}
-	defer func() { _ = store.Close() }()
-	resolver, err := project.NewResolver()
+	return &archiveEnv{store: store, sources: sources, resolver: resolver, recapDir: cfg.OutputDir}, nil
+}
+
+func (e *archiveEnv) refresh() (archive.RefreshResult, error) {
+	return e.store.Refresh(e.sources, e.resolver, e.recapDir)
+}
+
+func archiveSessions(cfg *config.Config) {
+	env, err := openArchive(cfg)
 	if err != nil {
 		logErrf("⚠ archive: %v", err)
 		return
 	}
-	res, err := store.Ingest(sources, resolver)
+	defer func() { _ = env.store.Close() }()
+	res, err := env.refresh()
 	if err != nil {
 		logErrf("⚠ archive: %v", err)
 	}
-	if res.Messages > 0 {
-		logf("Archived %d new message(s)", res.Messages)
+	if res.Ingested.Messages > 0 || res.Recaps > 0 {
+		logf("Archived %d new message(s), indexed %d recap file(s)", res.Ingested.Messages, res.Recaps)
 	}
 }
 

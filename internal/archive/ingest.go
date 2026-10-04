@@ -30,7 +30,7 @@ func (s *Store) Ingest(sources []parser.Source, resolver *project.Resolver) (Res
 	if err != nil {
 		return Result{}, err
 	}
-	in := &ingestion{store: s, resolver: resolver, projects: map[string]project.Project{}}
+	in := &ingestion{store: s, resolver: resolver, projects: map[string]project.Project{}, read: map[string]int64{}, found: map[string]int{}}
 	var errs []error
 	for _, src := range sources {
 		files, err := src.Files()
@@ -44,6 +44,9 @@ func (s *Store) Ingest(sources []parser.Source, resolver *project.Resolver) (Res
 			}
 		}
 	}
+	if err := s.updateFormatWarning(in.read, in.found); err != nil {
+		errs = append(errs, err)
+	}
 	if err := s.setMeta("last_ingest", strconv.FormatInt(time.Now().UnixMilli(), 10)); err != nil {
 		errs = append(errs, err)
 	}
@@ -55,6 +58,8 @@ type ingestion struct {
 	resolver *project.Resolver
 	projects map[string]project.Project
 	result   Result
+	read     map[string]int64
+	found    map[string]int
 }
 
 func (in *ingestion) file(src parser.Source, path string, cur parser.Cursor) error {
@@ -72,6 +77,8 @@ func (in *ingestion) file(src parser.Source, path string, cur parser.Cursor) err
 	if err != nil {
 		return err
 	}
+	in.read[src.Name()] += next.Offset - cur.Offset
+	in.found[src.Name()] += len(records)
 	tx, err := in.store.db.Begin()
 	if err != nil {
 		return err
