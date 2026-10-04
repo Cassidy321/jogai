@@ -38,9 +38,9 @@ func reduceSession(s parser.Session) parser.Session {
 	messages := make([]parser.Message, 0, len(s.Messages))
 	for _, m := range s.Messages {
 		if m.Role == "assistant" {
-			m.Content = truncateRunes(collapseCodeBlocks(m.Content), MaxAssistantChars)
+			m.Content = Truncate(collapseCodeBlocks(m.Content), MaxAssistantChars)
 		} else {
-			m.Content = truncateRunes(m.Content, MaxUserChars)
+			m.Content = Truncate(m.Content, MaxUserChars)
 		}
 		messages = append(messages, m)
 	}
@@ -66,7 +66,7 @@ func fitBudget(sessions []parser.Session, budget int) {
 	limit := capFor(lengths, budget)
 	for i := range sessions {
 		for j := range sessions[i].Messages {
-			sessions[i].Messages[j].Content = truncateRunes(sessions[i].Messages[j].Content, limit)
+			sessions[i].Messages[j].Content = Truncate(sessions[i].Messages[j].Content, limit)
 		}
 	}
 }
@@ -160,7 +160,7 @@ func findOpeningFence(s string) (pos int, length int) {
 	}
 }
 
-func truncateRunes(s string, maxRunes int) string {
+func Truncate(s string, maxRunes int) string {
 	if maxRunes <= markerRuneLen {
 		return s[:0]
 	}
