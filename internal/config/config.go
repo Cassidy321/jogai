@@ -15,7 +15,10 @@ type Config struct {
 	DayEnd     *TimeOfDay `json:"day_end,omitempty"`
 	Sources    []string   `json:"sources,omitempty"`
 	Summarizer string     `json:"summarizer,omitempty"`
+	AutoUpdate *bool      `json:"auto_update,omitempty"`
 }
+
+func (c *Config) AutoUpdateEnabled() bool { return c.AutoUpdate == nil || *c.AutoUpdate }
 
 // TimeOfDay represents an hour-and-minute value in local time, used for the
 // dev-day boundary.

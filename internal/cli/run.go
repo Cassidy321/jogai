@@ -17,6 +17,7 @@ import (
 	"github.com/Cassidy321/jogai/internal/recap"
 	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
+	"github.com/Cassidy321/jogai/internal/update"
 )
 
 const catchUpDays = 14
@@ -50,7 +51,21 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
 	repairSchedule()
+	defer maybeUpdate(cfg)
 	return c.recapPending(cfg)
+}
+
+func maybeUpdate(cfg *config.Config) {
+	if !scheduler.InJob() || !cfg.AutoUpdateEnabled() {
+		return
+	}
+	attempted, err := update.Daily(context.Background())
+	switch {
+	case err != nil:
+		logErrf("⚠ auto-update failed: %v", err)
+	case attempted:
+		logf("Checked Homebrew for a newer jogai.")
+	}
 }
 
 func repairSchedule() {
