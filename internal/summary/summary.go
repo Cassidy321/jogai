@@ -3,6 +3,7 @@ package summary
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -32,6 +33,8 @@ type Summarizer interface {
 	Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error)
 }
 
+var ErrCLINotFound = errors.New("CLI not found in PATH or in its usual install locations")
+
 // launchd starts jobs with a minimal PATH that misses where these CLIs install.
 var fallbackDirs = func() []string {
 	dirs := []string{"/opt/homebrew/bin", "/usr/local/bin"}
@@ -51,7 +54,7 @@ func LookPath(bin string) (string, error) {
 			return p, nil
 		}
 	}
-	return "", fmt.Errorf("%s CLI not found in PATH or in its usual install locations — install it and log in", bin)
+	return "", fmt.Errorf("%s %w — install it and log in", bin, ErrCLINotFound)
 }
 
 func checkCLI(bin string) error {

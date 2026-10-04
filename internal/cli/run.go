@@ -51,6 +51,11 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
 	repairSchedule()
+	if changed, err := registerMCP(stableExecutable()); err != nil {
+		logErrf("⚠ could not register jogai in Claude Code: %v", err)
+	} else if changed {
+		logf("Claude Code can now search your past sessions (MCP server %q).", mcpName)
+	}
 	defer maybeUpdate(cfg)
 	return c.recapPending(cfg)
 }

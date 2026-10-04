@@ -109,7 +109,7 @@ func generatePlist(dayEnd config.TimeOfDay, execPath, binDir, logDir string) ([]
 	return buf.Bytes(), nil
 }
 
-func isTempBinary(path string) bool {
+func IsTempBinary(path string) bool {
 	for _, marker := range []string{"/go-build", "/tmp/", "/var/folders/"} {
 		if strings.Contains(path, marker) {
 			return true
@@ -123,7 +123,7 @@ func (l *launchd) Install() error {
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
-	if isTempBinary(execPath) {
+	if IsTempBinary(execPath) {
 		return fmt.Errorf("cannot install schedule from a temporary binary (%s) — build and install jogai first", execPath)
 	}
 	plist, err := l.render(execPath)
