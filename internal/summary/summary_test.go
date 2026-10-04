@@ -10,6 +10,7 @@ import (
 )
 
 func TestBuildPrompt(t *testing.T) {
+	day := time.Date(2026, 4, 5, 5, 0, 0, 0, time.UTC)
 	sessions := []parser.Session{
 		{
 			ID:        "s1",
@@ -24,7 +25,7 @@ func TestBuildPrompt(t *testing.T) {
 		},
 	}
 
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(day, sessions)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,6 +39,9 @@ func TestBuildPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "Do not include a document title/heading") {
 		t.Error("prompt should forbid a generated title")
 	}
+	if !strings.Contains(prompt, day.Format("Monday 2 January 2006")) {
+		t.Error("prompt should name the dev day")
+	}
 	if !strings.Contains(prompt, "jogai") {
 		t.Error("prompt should include project name")
 	}
@@ -50,6 +54,7 @@ func TestBuildPrompt(t *testing.T) {
 }
 
 func TestBuildPromptMultipleSessions(t *testing.T) {
+	day := time.Date(2026, 4, 5, 5, 0, 0, 0, time.UTC)
 	sessions := []parser.Session{
 		{
 			ID:      "s1",
@@ -67,7 +72,7 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 		},
 	}
 
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(day, sessions)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -90,7 +95,7 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 }
 
 func TestClaudeGenerateNoSessions(t *testing.T) {
-	_, err := Claude{}.Generate(context.Background(), nil)
+	_, err := Claude{}.Generate(context.Background(), time.Time{}, nil)
 	if err == nil {
 		t.Error("expected error for empty sessions")
 	}
@@ -102,7 +107,7 @@ func TestClaudeGenerate_MissingCLIReportsPath(t *testing.T) {
 		ID: "s1", Tool: "claude-code", Project: "jogai",
 		Messages: []parser.Message{{Role: "user", Content: "hi"}},
 	}}
-	_, err := Claude{}.Generate(context.Background(), sessions)
+	_, err := Claude{}.Generate(context.Background(), time.Time{}, sessions)
 	if err == nil {
 		t.Fatal("expected error for missing claude CLI")
 	}

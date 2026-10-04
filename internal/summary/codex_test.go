@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Cassidy321/jogai/internal/parser"
 )
@@ -29,7 +30,7 @@ func TestCodexCheckCLI_Missing(t *testing.T) {
 }
 
 func TestCodexGenerateNoSessions(t *testing.T) {
-	_, err := Codex{}.Generate(context.Background(), nil)
+	_, err := Codex{}.Generate(context.Background(), time.Time{}, nil)
 	if err == nil {
 		t.Error("expected error for empty sessions")
 	}
@@ -41,7 +42,7 @@ func TestCodexGenerate_MissingCLIReportsPath(t *testing.T) {
 		ID: "s1", Tool: "codex", Project: "jogai",
 		Messages: []parser.Message{{Role: "user", Content: "hi"}},
 	}}
-	_, err := Codex{}.Generate(context.Background(), sessions)
+	_, err := Codex{}.Generate(context.Background(), time.Time{}, sessions)
 	if err == nil {
 		t.Fatal("expected error for missing codex CLI")
 	}
@@ -73,15 +74,12 @@ exit 0
 		ID: "s1", Tool: "codex", Project: "jogai",
 		Messages: []parser.Message{{Role: "user", Content: "hi"}},
 	}}
-	s, err := Codex{}.Generate(context.Background(), sessions)
+	s, err := Codex{}.Generate(context.Background(), time.Time{}, sessions)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !strings.Contains(s.Content, "stub recap body") {
 		t.Errorf("Content = %q, want to contain stub", s.Content)
-	}
-	if s.Sessions != 1 {
-		t.Errorf("Sessions = %d, want 1", s.Sessions)
 	}
 }
 
@@ -101,7 +99,7 @@ exit 1
 		ID: "s1", Tool: "codex", Project: "jogai",
 		Messages: []parser.Message{{Role: "user", Content: "hi"}},
 	}}
-	_, err := Codex{}.Generate(context.Background(), sessions)
+	_, err := Codex{}.Generate(context.Background(), time.Time{}, sessions)
 	if err == nil {
 		t.Fatal("expected error")
 	}

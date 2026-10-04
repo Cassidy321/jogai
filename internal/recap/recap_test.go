@@ -2,193 +2,169 @@ package recap
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 type mockParser struct {
 	sessions []parser.Session
+	err      error
+	since    time.Time
 }
 
-func (m *mockParser) Name() string                                   { return "mock" }
-func (m *mockParser) Detect() bool                                   { return true }
-func (m *mockParser) Sessions(_ time.Time) ([]parser.Session, error) { return m.sessions, nil }
+func (m *mockParser) Name() string { return "mock" }
+func (m *mockParser) Detect() bool { return true }
+func (m *mockParser) Sessions(since time.Time) ([]parser.Session, error) {
+	m.since = since
+	return m.sessions, m.err
+}
 
 type mockWriter struct {
-	written *summary.Summary
+	written []*summary.Summary
 }
 
 func (m *mockWriter) Write(s *summary.Summary) error {
-	m.written = s
+	m.written = append(m.written, s)
 	return nil
 }
 
 type fakeSummarizer struct {
-	fn func(ctx context.Context, sessions []parser.Session) (*summary.Summary, error)
+	fn func(ctx context.Context, day time.Time, sessions []parser.Session) (*summary.Summary, error)
 }
 
 func (f fakeSummarizer) Name() string    { return "fake" }
 func (f fakeSummarizer) CheckCLI() error { return nil }
-func (f fakeSummarizer) Generate(ctx context.Context, sessions []parser.Session) (*summary.Summary, error) {
-	return f.fn(ctx, sessions)
+func (f fakeSummarizer) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*summary.Summary, error) {
+	return f.fn(ctx, day, sessions)
 }
 
-func TestPipelineRun(t *testing.T) {
-	sessions := []parser.Session{
-		{
-			ID:        "s1",
-			Tool:      "claude-code",
-			StartedAt: time.Date(2026, 4, 6, 10, 0, 0, 0, time.UTC),
-			EndedAt:   time.Date(2026, 4, 6, 11, 0, 0, 0, time.UTC),
-			Project:   "jogai",
-			Messages: []parser.Message{
-				{Role: "user", Content: "add tests", Timestamp: time.Date(2026, 4, 6, 10, 0, 0, 0, time.UTC)},
-				{Role: "assistant", Content: "Done.", Timestamp: time.Date(2026, 4, 6, 10, 1, 0, 0, time.UTC)},
-			},
-		},
-	}
+func at(day, hour int) time.Time { return time.Date(2026, 4, day, hour, 0, 0, 0, time.UTC) }
 
+func span(day int) devday.Span {
+	return devday.Span{Start: at(day, 5), End: at(day+1, 5), Label: at(day, 5).Format(devday.LabelFormat)}
+}
+
+func twoDaysOfWork() []parser.Session {
+	return []parser.Session{{
+		ID: "s1", Project: "jogai",
+		Messages: []parser.Message{
+			{Role: "user", Content: "day 6 work", Timestamp: at(6, 10)},
+			{Role: "user", Content: "day 7 work", Timestamp: at(7, 10)},
+		},
+	}}
+}
+
+func TestPipelineRun_WritesEachDay(t *testing.T) {
+	mp := &mockParser{sessions: twoDaysOfWork()}
 	w := &mockWriter{}
+	var gotDays []time.Time
 	p := &Pipeline{
-		Parser: &mockParser{sessions: sessions},
-		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
-			return &summary.Summary{
-				Date:     time.Now(),
-				Content:  "Test recap",
-				Sessions: len(s),
-			}, nil
+		Parser: mp,
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, day time.Time, s []parser.Session) (*summary.Summary, error) {
+			gotDays = append(gotDays, day)
+			return &summary.Summary{Content: s[0].Messages[0].Content}, nil
 		}},
 		Writer: w,
 	}
 
-	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
-	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
-
-	s, err := p.Run(context.Background(), since, until, since)
-	if err != nil || s == nil {
-		t.Fatalf("Run returned (%v, %v); want a non-nil summary", s, err)
+	days, err := p.Run(context.Background(), []devday.Span{span(6), span(7)})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if s.Sessions != 1 {
-		t.Errorf("expected 1 session, got %d", s.Sessions)
+	if len(days) != 2 || days[0].Summary == nil || days[1].Summary == nil {
+		t.Fatalf("got %+v, want two written days", days)
 	}
-	if !s.WindowStart.Equal(since) || !s.WindowEnd.Equal(until) {
-		t.Errorf("expected window [%v, %v), got [%v, %v)", since, until, s.WindowStart, s.WindowEnd)
+	if !mp.since.Equal(at(6, 5)) {
+		t.Errorf("sources should be parsed once from the oldest day, since = %v", mp.since)
 	}
-	if w.written == nil {
-		t.Fatal("writer was not called")
+	if len(w.written) != 2 || w.written[0].Content != "day 6 work" || w.written[1].Content != "day 7 work" {
+		t.Fatalf("written = %+v", w.written)
 	}
-	if w.written.Content != "Test recap" {
-		t.Errorf("expected 'Test recap', got %q", w.written.Content)
+	second := w.written[1]
+	if !second.Date.Equal(at(7, 5)) || !second.WindowStart.Equal(at(7, 5)) || !second.WindowEnd.Equal(at(8, 5)) {
+		t.Errorf("day 7 window = %v [%v, %v)", second.Date, second.WindowStart, second.WindowEnd)
 	}
-	if !w.written.WindowStart.Equal(since) || !w.written.WindowEnd.Equal(until) {
-		t.Errorf("writer got window [%v, %v)", w.written.WindowStart, w.written.WindowEnd)
+	if !gotDays[0].Equal(at(6, 5)) {
+		t.Errorf("summarizer should receive the dev day start, got %v", gotDays[0])
 	}
 }
 
-func TestPipelineNoSessions(t *testing.T) {
+func TestPipelineRun_EmptyDayIsNotSummarized(t *testing.T) {
 	p := &Pipeline{
-		Parser: &mockParser{sessions: nil},
-		Summarizer: fakeSummarizer{fn: func(_ context.Context, _ []parser.Session) (*summary.Summary, error) {
-			t.Fatal("summarizer should not be called when no sessions")
+		Parser: &mockParser{},
+		Summarizer: fakeSummarizer{fn: func(context.Context, time.Time, []parser.Session) (*summary.Summary, error) {
+			t.Fatal("summarizer should not be called without sessions")
 			return nil, nil
 		}},
 		Writer: &mockWriter{},
 	}
-
-	since := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
-	until := time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC)
-
-	s, err := p.Run(context.Background(), since, until, since)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s != nil {
-		t.Errorf("expected nil summary for no sessions, got %+v", s)
+	days, err := p.Run(context.Background(), []devday.Span{span(6)})
+	if err != nil || len(days) != 1 || days[0].Summary != nil || days[0].Err != nil {
+		t.Fatalf("Run = (%+v, %v), want one empty day", days, err)
 	}
 }
 
-func TestPipelineFiltersUntil(t *testing.T) {
-	sessions := []parser.Session{
-		{
-			ID:        "s1",
-			StartedAt: time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC),
-			Messages:  []parser.Message{{Role: "user", Content: "old", Timestamp: time.Date(2026, 4, 5, 10, 0, 0, 0, time.UTC)}},
-		},
-		{
-			ID:        "s2",
-			StartedAt: time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC),
-			Messages:  []parser.Message{{Role: "user", Content: "future", Timestamp: time.Date(2026, 4, 7, 10, 0, 0, 0, time.UTC)}},
-		},
-	}
-
-	var summarized int
+func TestPipelineRun_FailingDayDoesNotBlockOthers(t *testing.T) {
+	boom := errors.New("boom")
+	w := &mockWriter{}
 	p := &Pipeline{
-		Parser: &mockParser{sessions: sessions},
-		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
-			summarized = len(s)
-			return &summary.Summary{Sessions: len(s)}, nil
+		Parser: &mockParser{sessions: twoDaysOfWork()},
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, day time.Time, _ []parser.Session) (*summary.Summary, error) {
+			if day.Equal(at(6, 5)) {
+				return nil, boom
+			}
+			return &summary.Summary{Content: "ok"}, nil
 		}},
-		Writer: &mockWriter{},
+		Writer: w,
 	}
-
-	since := time.Date(2026, 4, 5, 0, 0, 0, 0, time.UTC)
-	until := time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC)
-
-	_, err := p.Run(context.Background(), since, until, since)
+	days, err := p.Run(context.Background(), []devday.Span{span(6), span(7)})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if summarized != 1 {
-		t.Errorf("expected 1 session after until filter, got %d", summarized)
+	if !errors.Is(days[0].Err, boom) {
+		t.Errorf("day 6 error = %v, want boom", days[0].Err)
+	}
+	if days[1].Err != nil || days[1].Summary == nil || len(w.written) != 1 {
+		t.Errorf("day 7 should still be written, got %+v (written %d)", days[1], len(w.written))
 	}
 }
 
-func TestPipelineTrimsMessagesAfterUntil(t *testing.T) {
-	sessions := []parser.Session{
-		{
-			ID:        "s1",
-			StartedAt: time.Date(2026, 4, 11, 4, 55, 0, 0, time.UTC),
-			EndedAt:   time.Date(2026, 4, 11, 5, 5, 0, 0, time.UTC),
-			Messages: []parser.Message{
-				{Role: "user", Content: "before", Timestamp: time.Date(2026, 4, 11, 4, 58, 0, 0, time.UTC)},
-				{Role: "assistant", Content: "after", Timestamp: time.Date(2026, 4, 11, 5, 5, 0, 0, time.UTC)},
-			},
+func TestPipelineRun_KeepsOnlyMessagesInsideTheDay(t *testing.T) {
+	sessions := []parser.Session{{
+		ID: "s1",
+		Messages: []parser.Message{
+			{Role: "user", Content: "before", Timestamp: at(7, 4)},
+			{Role: "assistant", Content: "after", Timestamp: at(7, 6)},
 		},
-	}
-
-	var summarized []parser.Session
+	}}
+	var got []parser.Session
 	p := &Pipeline{
 		Parser: &mockParser{sessions: sessions},
-		Summarizer: fakeSummarizer{fn: func(_ context.Context, s []parser.Session) (*summary.Summary, error) {
-			summarized = s
-			return &summary.Summary{Sessions: len(s)}, nil
+		Summarizer: fakeSummarizer{fn: func(_ context.Context, _ time.Time, s []parser.Session) (*summary.Summary, error) {
+			got = s
+			return &summary.Summary{}, nil
 		}},
 		Writer: &mockWriter{},
 	}
+	if _, err := p.Run(context.Background(), []devday.Span{span(6)}); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || len(got[0].Messages) != 1 || got[0].Messages[0].Content != "before" {
+		t.Fatalf("summarized = %+v, want only the 04:00 message", got)
+	}
+	if !got[0].StartedAt.Equal(at(7, 4)) || !got[0].EndedAt.Equal(at(7, 4)) {
+		t.Errorf("session bounds = [%v, %v], want the kept message", got[0].StartedAt, got[0].EndedAt)
+	}
+}
 
-	since := time.Date(2026, 4, 10, 5, 0, 0, 0, time.UTC)
-	until := time.Date(2026, 4, 11, 5, 0, 0, 0, time.UTC)
-
-	_, err := p.Run(context.Background(), since, until, until)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(summarized) != 1 {
-		t.Fatalf("expected 1 summarized session, got %d", len(summarized))
-	}
-	if len(summarized[0].Messages) != 1 {
-		t.Fatalf("expected 1 message after trimming, got %d", len(summarized[0].Messages))
-	}
-	if summarized[0].Messages[0].Content != "before" {
-		t.Fatalf("unexpected message content %q", summarized[0].Messages[0].Content)
-	}
-	if !summarized[0].StartedAt.Equal(summarized[0].Messages[0].Timestamp) {
-		t.Fatalf("expected startedAt to match first kept message, got %v", summarized[0].StartedAt)
-	}
-	if !summarized[0].EndedAt.Equal(summarized[0].Messages[0].Timestamp) {
-		t.Fatalf("expected endedAt to match last kept message, got %v", summarized[0].EndedAt)
+func TestPipelineRun_ParseErrorFailsTheRun(t *testing.T) {
+	p := &Pipeline{Parser: &mockParser{err: errors.New("every source failed")}, Writer: &mockWriter{}}
+	if _, err := p.Run(context.Background(), []devday.Span{span(6)}); err == nil {
+		t.Fatal("expected the parse error")
 	}
 }

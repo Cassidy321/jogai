@@ -19,11 +19,11 @@ func (Claude) Name() string { return NameClaude }
 
 func (Claude) CheckCLI() error { return checkCLI(NameClaude) }
 
-func (c Claude) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
+func (c Claude) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(day, sessions)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
@@ -34,29 +34,12 @@ func (c Claude) Generate(ctx context.Context, sessions []parser.Session) (*Summa
 	if resp.IsError {
 		return nil, classifyClaudeError(resp.Result)
 	}
-	totalInput := resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens
-	return &Summary{
-		Date:     time.Now(),
-		Content:  strings.TrimSpace(resp.Result),
-		Sessions: len(sessions),
-		Usage: Usage{
-			InputTokens:  totalInput,
-			OutputTokens: resp.Usage.OutputTokens,
-			CostUSD:      resp.TotalCostUSD,
-		},
-	}, nil
+	return &Summary{Content: strings.TrimSpace(resp.Result)}, nil
 }
 
 type claudeResponse struct {
-	Result       string  `json:"result"`
-	IsError      bool    `json:"is_error"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	Usage        struct {
-		InputTokens              int `json:"input_tokens"`
-		OutputTokens             int `json:"output_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	} `json:"usage"`
+	Result  string `json:"result"`
+	IsError bool   `json:"is_error"`
 }
 
 func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error) {

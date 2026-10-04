@@ -19,14 +19,14 @@ func (Codex) Name() string { return NameCodex }
 
 func (Codex) CheckCLI() error { return checkCLI(NameCodex) }
 
-func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
+func (c Codex) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
 	if err := c.CheckCLI(); err != nil {
 		return nil, err
 	}
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(day, sessions)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
@@ -61,12 +61,7 @@ func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summar
 	if content == "" {
 		return nil, fmt.Errorf("codex returned an empty recap")
 	}
-	return &Summary{
-		Date:     time.Now(),
-		Content:  content,
-		Sessions: len(sessions),
-		// Usage left zero — codex exec does not expose cost/tokens in a stable way.
-	}, nil
+	return &Summary{Content: content}, nil
 }
 
 func classifyCodexError(stderr string, err error) error {

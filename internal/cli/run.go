@@ -72,7 +72,11 @@ func (c *RunCmd) Run() error {
 	defer cancel()
 
 	devDayLabel := since.Format(devday.LabelFormat)
-	s, runErr := p.Run(ctx, since, until, since)
+	days, runErr := p.Run(ctx, []devday.Span{{Start: since, End: until, Label: devDayLabel}})
+	var s *summary.Summary
+	if runErr == nil {
+		s, runErr = days[0].Summary, days[0].Err
+	}
 
 	for _, w := range multi.Warnings() {
 		fmt.Printf("⚠ %s\n", w)
