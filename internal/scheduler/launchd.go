@@ -8,11 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
+	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" encoding="UTF-8"?>
@@ -24,7 +26,7 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 	<key>EnvironmentVariables</key>
 	<dict>
 		<key>PATH</key>
-		<string>{{.ClaudeDir}}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+		<string>{{.BinDir}}:/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
 	</dict>
 	<key>ProgramArguments</key>
 	<array>
@@ -34,6 +36,8 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 		<string>{{.ExecPath}}</string>
 		<string>run</string>
 	</array>
+	<key>RunAtLoad</key>
+	<true/>
 	<key>StartCalendarInterval</key>
 	<dict>
 		<key>Hour</key>
@@ -52,10 +56,10 @@ var plistTmpl = template.Must(template.New("plist").Parse(`<?xml version="1.0" e
 const launchdLabel = "com.jogai.daily"
 
 type plistData struct {
-	ExecPath  string
-	ClaudeDir string
-	DayEnd    config.TimeOfDay
-	LogDir    string
+	ExecPath string
+	BinDir   string
+	DayEnd   config.TimeOfDay
+	LogDir   string
 }
 
 type launchd struct {
@@ -92,13 +96,13 @@ func (l *launchd) isLoaded() bool {
 	return cmd.Run() == nil
 }
 
-func generatePlist(dayEnd config.TimeOfDay, execPath, claudeDir, logDir string) ([]byte, error) {
+func generatePlist(dayEnd config.TimeOfDay, execPath, binDir, logDir string) ([]byte, error) {
 	var buf bytes.Buffer
 	if err := plistTmpl.Execute(&buf, plistData{
-		ExecPath:  execPath,
-		ClaudeDir: claudeDir,
-		DayEnd:    dayEnd,
-		LogDir:    logDir,
+		ExecPath: execPath,
+		BinDir:   binDir,
+		DayEnd:   dayEnd,
+		LogDir:   logDir,
 	}); err != nil {
 		return nil, fmt.Errorf("execute plist template: %w", err)
 	}
@@ -115,61 +119,114 @@ func isTempBinary(path string) bool {
 }
 
 func (l *launchd) Install() error {
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	if cfg.DayEnd == nil {
-		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it before scheduling")
-	}
-
 	execPath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("resolve executable path: %w", err)
 	}
-
 	if isTempBinary(execPath) {
 		return fmt.Errorf("cannot install schedule from a temporary binary (%s) — build and install jogai first", execPath)
 	}
-
-	claudePath, err := exec.LookPath("claude")
-	if err != nil {
-		return fmt.Errorf("claude CLI not found — install it from https://claude.com/product/claude-code")
-	}
-
-	logDir := filepath.Join(l.configDir, "logs")
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return fmt.Errorf("create log dir: %w", err)
-	}
-
-	plist, err := generatePlist(*cfg.DayEnd, execPath, filepath.Dir(claudePath), logDir)
+	plist, err := l.render(execPath)
 	if err != nil {
 		return err
 	}
-
 	if err := os.MkdirAll(l.agentsDir, 0o755); err != nil {
 		return fmt.Errorf("create LaunchAgents dir: %w", err)
 	}
 
 	path := l.plistPath()
 	oldPlist, hadOldPlist := backupFile(path)
-
 	if err := os.WriteFile(path, plist, 0o644); err != nil {
 		return fmt.Errorf("write plist: %w", err)
 	}
-
-	_ = exec.Command("launchctl", "unload", path).Run()
-	if err := exec.Command("launchctl", "load", path).Run(); err != nil {
+	if err := l.reload(); err != nil {
 		if hadOldPlist {
 			_ = os.WriteFile(path, oldPlist, 0o644)
-			_ = exec.Command("launchctl", "load", path).Run()
+			_ = l.reload()
 		} else {
 			_ = os.Remove(path)
 		}
+		return err
+	}
+	return nil
+}
+
+// Repair never installs a schedule the user stopped, and keeps the binary
+// already in the plist so a dev build run by hand cannot take over the
+// schedule. Inside the job, reloading would kill the running recap: the new
+// plist is picked up at the next login instead.
+func (l *launchd) Repair() (bool, error) {
+	current, err := os.ReadFile(l.plistPath())
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read plist: %w", err)
+	}
+	execPath := plistExecPath(current)
+	if execPath == "" {
+		return false, nil
+	}
+	want, err := l.render(execPath)
+	if err != nil {
+		return false, err
+	}
+	if bytes.Equal(current, want) {
+		return false, nil
+	}
+	if err := os.WriteFile(l.plistPath(), want, 0o644); err != nil {
+		return false, fmt.Errorf("write plist: %w", err)
+	}
+	if InJob() {
+		return true, nil
+	}
+	return true, l.reload()
+}
+
+func (l *launchd) render(execPath string) ([]byte, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.DayEnd == nil {
+		return nil, fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it before scheduling")
+	}
+	binPath, err := summary.LookPath(summarizerBin(cfg))
+	if err != nil {
+		return nil, err
+	}
+	logDir := filepath.Join(l.configDir, "logs")
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, fmt.Errorf("create log dir: %w", err)
+	}
+	return generatePlist(*cfg.DayEnd, execPath, filepath.Dir(binPath), logDir)
+}
+
+func (l *launchd) reload() error {
+	_ = exec.Command("launchctl", "unload", l.plistPath()).Run()
+	if err := exec.Command("launchctl", "load", l.plistPath()).Run(); err != nil {
 		return fmt.Errorf("launchctl load: %w", err)
 	}
-
 	return nil
+}
+
+func summarizerBin(cfg *config.Config) string {
+	if cfg.Summarizer == summary.NameCodex {
+		return summary.NameCodex
+	}
+	return summary.NameClaude
+}
+
+// Tied to plistTmpl: the jogai binary is the argument right after caffeinate's
+// -s. If the template changes and this stops matching, Repair silently does nothing.
+var execPathRe = regexp.MustCompile(`<string>-s</string>\s*<string>([^<]+)</string>`)
+
+func plistExecPath(plist []byte) string {
+	m := execPathRe.FindSubmatch(plist)
+	if m == nil {
+		return ""
+	}
+	return string(m[1])
 }
 
 func backupFile(path string) ([]byte, bool) {
@@ -191,22 +248,17 @@ func (l *launchd) Uninstall() error {
 	return nil
 }
 
-func (l *launchd) Status() ([]Job, error) {
+func (l *launchd) Status() (Job, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		if errors.Is(err, config.ErrNotConfigured) {
-			return []Job{{Active: false}}, nil
+			return Job{}, nil
 		}
-		return nil, err
+		return Job{}, err
 	}
-
-	job := Job{
-		At:     cfg.DayEnd,
-		Active: l.isLoaded(),
-	}
+	job := Job{At: cfg.DayEnd, Active: l.isLoaded()}
 	if job.Active && cfg.DayEnd != nil {
 		job.NextRun = nextRun(*cfg.DayEnd, time.Now())
 	}
-
-	return []Job{job}, nil
+	return job, nil
 }

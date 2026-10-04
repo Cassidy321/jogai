@@ -62,16 +62,13 @@ func TestMultiParser_PartialFailure(t *testing.T) {
 
 func TestMultiParser_AllFailed(t *testing.T) {
 	a := &fakeParser{name: "a", err: errors.New("boom")}
-	b := &fakeParser{name: "b", err: errors.New("boom2")}
+	b := &fakeParser{name: "b", err: errors.New("crash")}
 	m := &MultiParser{Parsers: []Parser{a, b}}
-	got, err := m.Sessions(time.Unix(0, 0))
-	if err != nil {
-		t.Fatalf("Sessions should not return hard error when all fail; got %v", err)
+	_, err := m.Sessions(time.Unix(0, 0))
+	if err == nil {
+		t.Fatal("expected an error when every source fails")
 	}
-	if len(got) != 0 {
-		t.Errorf("got %d sessions, want 0", len(got))
-	}
-	if len(m.Warnings()) != 2 {
-		t.Errorf("Warnings = %v, want 2", m.Warnings())
+	if !strings.Contains(err.Error(), "boom") || !strings.Contains(err.Error(), "crash") {
+		t.Errorf("error should list every source failure, got %v", err)
 	}
 }

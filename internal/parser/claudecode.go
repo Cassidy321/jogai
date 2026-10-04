@@ -79,11 +79,18 @@ func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 }
 
 type jsonlLine struct {
-	Type      string    `json:"type"`
-	SessionID string    `json:"sessionId"`
-	Cwd       string    `json:"cwd"`
-	Timestamp time.Time `json:"timestamp"`
-	Message   struct {
+	Type             string    `json:"type"`
+	SessionID        string    `json:"sessionId"`
+	Cwd              string    `json:"cwd"`
+	Timestamp        time.Time `json:"timestamp"`
+	Entrypoint       string    `json:"entrypoint"`
+	IsMeta           bool      `json:"isMeta"`
+	IsCompactSummary bool      `json:"isCompactSummary"`
+	// Raw on purpose: if Claude Code changes their shape, a typed field would
+	// fail the whole line's unmarshal and silently drop the message.
+	Origin        json.RawMessage `json:"origin"`
+	ToolUseResult json.RawMessage `json:"toolUseResult"`
+	Message       struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -102,6 +109,10 @@ func parseSessionFile(path string) (*Session, error) {
 		if line.Type != "user" && line.Type != "assistant" {
 			return
 		}
+		// SDK and `claude -p` runs come from other tools (SocaDB, scripts), not from dev work.
+		if line.Entrypoint != "" && line.Entrypoint != "cli" {
+			return
+		}
 		if sessionID == "" {
 			sessionID = line.SessionID
 			project = projectFromCwd(line.Cwd)
@@ -109,7 +120,7 @@ func parseSessionFile(path string) (*Session, error) {
 		}
 		endedAt = line.Timestamp
 
-		text := extractText(line.Message.Content)
+		text := messageText(line)
 		if text == "" {
 			return
 		}

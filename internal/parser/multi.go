@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -32,13 +33,18 @@ func (m *MultiParser) Sessions(since time.Time) ([]Session, error) {
 	m.mu.Unlock()
 
 	var all []Session
+	failed := 0
 	for _, p := range m.Parsers {
 		sess, err := p.Sessions(since)
 		if err != nil {
+			failed++
 			m.addWarning(fmt.Sprintf("%s: %v", p.Name(), err))
 			continue
 		}
 		all = append(all, sess...)
+	}
+	if failed > 0 && failed == len(m.Parsers) {
+		return nil, fmt.Errorf("every source failed: %s", strings.Join(m.Warnings(), "; "))
 	}
 	sort.SliceStable(all, func(i, j int) bool {
 		return all[i].StartedAt.Before(all[j].StartedAt)

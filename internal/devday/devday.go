@@ -50,3 +50,21 @@ func FromDate(date time.Time, dayEnd config.TimeOfDay) (start, end time.Time, la
 	label = start.Format(LabelFormat)
 	return start, end, label
 }
+
+type Span struct {
+	Start time.Time
+	End   time.Time
+	Label string
+}
+
+// Oldest first: recap.Pipeline parses the sources once from the first span.
+func Recent(ref time.Time, dayEnd config.TimeOfDay, n int) []Span {
+	spans := make([]Span, n)
+	start, _, _ := Window(ref, dayEnd)
+	for i := n - 1; i >= 0; i-- {
+		end := start
+		start = end.AddDate(0, 0, -1)
+		spans[i] = Span{Start: start, End: end, Label: start.Format(LabelFormat)}
+	}
+	return spans
+}

@@ -3,9 +3,8 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
@@ -43,11 +42,12 @@ func (c *StatusCmd) Run() error {
 	if jobErr != nil || (job != nil && job.Active && job.At == nil) {
 		healthy = false
 	}
-	if cfg != nil && cfg.DayEnd != nil && job != nil && job.Active {
-		printStaleRunWarning(cfg, time.Now())
-	}
 
 	printLastRun()
+
+	if cfg != nil && cfg.DayEnd != nil && !printDayIssues(cfg, time.Now()) {
+		healthy = false
+	}
 
 	if !healthy {
 		return fmt.Errorf("some checks failed — see above for details")
@@ -168,11 +168,11 @@ func loadScheduleJob() (*scheduler.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	jobs, err := s.Status()
-	if err != nil || len(jobs) == 0 {
+	job, err := s.Status()
+	if err != nil {
 		return nil, err
 	}
-	return &jobs[0], nil
+	return &job, nil
 }
 
 func printScheduleLine(job *scheduler.Job, err error) {
@@ -191,15 +191,35 @@ func printScheduleLine(job *scheduler.Job, err error) {
 	}
 }
 
-func printStaleRunWarning(cfg *config.Config, now time.Time) {
-	if cfg.OutputDir == "" || cfg.DayEnd == nil {
-		return
+func printDayIssues(cfg *config.Config, now time.Time) bool {
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		fmt.Printf("  History:    ✗ %v\n", err)
+		return false
 	}
-	_, _, label := devday.Previous(now, *cfg.DayEnd)
-	expected := filepath.Join(cfg.OutputDir, label+".md")
-	if _, err := os.Stat(expected); err == nil {
-		return
+	exists := recapExists(cfg.OutputDir)
+	ok := true
+	pending := 0
+	for _, s := range devday.Recent(now, *cfg.DayEnd, catchUpDays) {
+		d, recorded := days[s.Label]
+		switch {
+		case recorded && d.Status == lastrun.StatusError:
+			ok = false
+			fmt.Printf("  ! %s failed, retried on the next run: %s\n", s.Label, firstLine(d.Error))
+		case recorded && d.Status == lastrun.StatusRefused:
+			ok = false
+			fmt.Printf("  ! %s was refused by the model — retry with: jogai run --day %s\n", s.Label, s.Label)
+		case !recorded && !exists(s.Label):
+			pending++
+		}
 	}
-	fmt.Printf("\n  ! Last scheduled run didn't produce %s.\n", label+".md")
-	fmt.Printf("    Catch up with: jogai run --day %s\n", label)
+	if pending > 0 {
+		fmt.Printf("  ℹ %d dev day(s) not recapped yet — the next run catches up (or run `jogai run` now)\n", pending)
+	}
+	return ok
+}
+
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
 }

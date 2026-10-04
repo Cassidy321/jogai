@@ -2,6 +2,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"time"
 
 	"github.com/alecthomas/kong"
 )
@@ -31,5 +33,11 @@ func Execute() error {
 		kong.Description("AI session recaps — jog your memory."),
 		kong.UsageOnError(),
 	)
-	return ctx.Run()
+	if err := ctx.Run(); err != nil {
+		if !isTerminal(os.Stderr) {
+			return fmt.Errorf("%s %w", time.Now().Format(timestampLayout), err)
+		}
+		return err
+	}
+	return nil
 }

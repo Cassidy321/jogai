@@ -19,11 +19,25 @@ func (Claude) Name() string { return NameClaude }
 
 func (Claude) CheckCLI() error { return checkCLI(NameClaude) }
 
-func (c Claude) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
+// The summarizer must not inherit the interactive setup: user hooks and
+// plugins would fire on every call, MCP servers would spawn `jogai mcp`, the
+// user's default model (opus[1m]) can get recaps refused by safeguards, and a
+// persisted session would be recapped the next day.
+var claudeArgs = []string{
+	"-p",
+	"--output-format", "json",
+	"--no-session-persistence",
+	"--model", "sonnet",
+	"--tools", "",
+	"--strict-mcp-config",
+	"--setting-sources", "",
+}
+
+func (c Claude) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
 	if len(sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(day, sessions)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
@@ -32,74 +46,41 @@ func (c Claude) Generate(ctx context.Context, sessions []parser.Session) (*Summa
 		return nil, err
 	}
 	if resp.IsError {
-		return nil, classifyClaudeError(resp.Result)
+		return nil, &Error{Kind: classify(resp.Result), Msg: "claude: " + resp.Result}
 	}
-	totalInput := resp.Usage.InputTokens + resp.Usage.CacheCreationInputTokens + resp.Usage.CacheReadInputTokens
-	return &Summary{
-		Date:     time.Now(),
-		Content:  strings.TrimSpace(resp.Result),
-		Sessions: len(sessions),
-		Usage: Usage{
-			InputTokens:  totalInput,
-			OutputTokens: resp.Usage.OutputTokens,
-			CostUSD:      resp.TotalCostUSD,
-		},
-	}, nil
+	return &Summary{Content: strings.TrimSpace(resp.Result)}, nil
 }
 
 type claudeResponse struct {
-	Result       string  `json:"result"`
-	IsError      bool    `json:"is_error"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	Usage        struct {
-		InputTokens              int `json:"input_tokens"`
-		OutputTokens             int `json:"output_tokens"`
-		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
-	} `json:"usage"`
+	Result  string `json:"result"`
+	IsError bool   `json:"is_error"`
 }
 
 func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error) {
-	if err := c.CheckCLI(); err != nil {
+	bin, err := LookPath(NameClaude)
+	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, NameClaude,
-		"-p",
-		"--output-format", "json",
-		"--no-session-persistence",
-	)
+	cmd := exec.CommandContext(ctx, bin, claudeArgs...)
 	// Neutral CWD so claude's CLAUDE.md walk-up doesn't cross the user's home and trigger macOS TCC prompts.
 	cmd.Dir = os.TempDir()
 	cmd.Stdin = strings.NewReader(prompt)
+	// Children of a killed claude can keep stdout open; without a delay Output never returns.
+	cmd.WaitDelay = 5 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		if len(out) > 0 {
-			var resp claudeResponse
-			if jsonErr := json.Unmarshal(out, &resp); jsonErr == nil {
-				return &resp, nil
-			}
-		}
-		return nil, fmt.Errorf("claude CLI failed — make sure you're logged in and have an active subscription\n  detail: %w\n  %s", err, stderr.String())
+	out, runErr := cmd.Output()
+	if ctx.Err() != nil {
+		return nil, &Error{Kind: KindTransient, Msg: "claude CLI timed out"}
 	}
+	// API errors exit non-zero but still print the JSON result that names the cause.
 	var resp claudeResponse
-	if err := json.Unmarshal(out, &resp); err != nil {
-		return nil, fmt.Errorf("could not read claude response — try running 'claude -p' manually to check for issues\n  detail: %w", err)
+	if json.Unmarshal(out, &resp) == nil && (resp.IsError || resp.Result != "") {
+		return &resp, nil
 	}
-	return &resp, nil
-}
-
-func classifyClaudeError(result string) error {
-	lower := strings.ToLower(result)
-	switch {
-	case strings.Contains(lower, "prompt is too long"):
-		return fmt.Errorf("too many sessions to summarize at once — try a shorter time window with --day")
-	case strings.Contains(lower, "rate limit"), strings.Contains(lower, "too many requests"):
-		return fmt.Errorf("rate limit reached — wait a few minutes and try again")
-	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "authentication"):
-		return fmt.Errorf("authentication failed — check your Claude subscription or run 'claude auth'")
-	default:
-		return fmt.Errorf("summary generation failed: %s", result)
+	if runErr != nil {
+		detail := strings.TrimSpace(stderr.String())
+		return nil, &Error{Kind: classify(detail), Msg: fmt.Sprintf("claude CLI failed (%v): %s", runErr, detail)}
 	}
+	return nil, &Error{Kind: KindFatal, Msg: "could not read the claude response — try running 'claude -p' manually"}
 }
