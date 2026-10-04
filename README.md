@@ -73,6 +73,24 @@ When jogai is installed with Homebrew, the scheduled run upgrades it at most onc
 
 Claude Code deletes transcripts after about 30 days. Every run, jogai copies what is new in your interactive Claude Code and Codex sessions into a private archive (`~/.local/share/jogai/jogai.db`), so your history outlives that cleanup. Credentials (API keys, tokens, passwords in assignments or URLs) are masked before anything is stored, and automated sessions (SDK, `claude -p`, `codex exec`) are left out.
 
+### Search your past sessions
+
+```bash
+jogai search caffeinate launchd
+jogai search --project dokaa --since 2026-09-01 embed iframe
+jogai search --recaps retry
+```
+
+`jogai init` (and the first run after an upgrade) also registers jogai as an MCP server in Claude Code, for all your projects. Claude then searches your archive by itself when you mention past work — "how did we fix the TCC prompts?" — and reads the whole exchange around what it finds. If something needs your attention (a recap failing for days, an expired login, a failed update), Claude tells you at the start of a session.
+
+### Uninstall
+
+```bash
+jogai uninstall          # schedule + Claude Code integration
+jogai uninstall --data   # also the archive and settings
+brew uninstall jogai
+```
+
 ### Check system health
 
 ```bash
