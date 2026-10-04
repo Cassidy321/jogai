@@ -23,7 +23,8 @@ import (
 const catchUpDays = 14
 
 type RunCmd struct {
-	Day string `name:"day" help:"Recap a specific dev day (YYYY-MM-DD), even if it was already recapped."`
+	Day   string `name:"day" help:"Recap a specific dev day (YYYY-MM-DD), even if it was already recapped."`
+	Force bool   `help:"With --day, replace a recap even if it was edited by hand."`
 
 	// Legacy v0.4 flags, kept hidden for schedule backward compatibility.
 	Scheduled bool   `kong:"hidden"`
@@ -111,15 +112,16 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	}
 	logf("Recapping %s", describeSpans(spans))
 
+	guarded := &guardedWriter{md: output.NewMarkdown(cfg.OutputDir), days: days, force: c.Force, hashes: map[string]string{}}
 	p := &recap.Pipeline{
 		Archive:    env.store,
 		Summarizer: summary.NewRetry(sizer),
-		Writer:     output.NewMarkdown(cfg.OutputDir),
+		Writer:     guarded,
 		Warnings:   warnings,
 	}
 	results := p.Run(context.Background(), spans)
 
-	failed := record(days, results, warnings)
+	failed := record(days, results, warnings, guarded.hashes)
 	if err := lastrun.SaveDays(days); err != nil {
 		logErrf("⚠ could not save the run history: %v", err)
 	}
@@ -198,12 +200,18 @@ func describeSpans(spans []devday.Span) string {
 	return fmt.Sprintf("%d dev days: %s", len(spans), strings.Join(labels, ", "))
 }
 
-func record(days map[string]lastrun.Day, results []recap.Day, warnings []string) int {
+func record(days map[string]lastrun.Day, results []recap.Day, warnings []string, hashes map[string]string) int {
 	failed := 0
 	now := time.Now()
 	for _, r := range results {
-		d := lastrun.Day{UpdatedAt: now}
+		d := lastrun.Day{UpdatedAt: now, Hash: hashes[r.Span.Label]}
+		if d.Hash == "" {
+			d.Hash = days[r.Span.Label].Hash
+		}
 		switch {
+		case errors.Is(r.Err, errEditedByHand):
+			d.Status = lastrun.StatusOK
+			logf("dev day %s: kept your edited recap — rerun with --day %s --force to replace it", r.Span.Label, r.Span.Label)
 		case r.Err != nil:
 			failed++
 			d.Status, d.Error = lastrun.StatusError, r.Err.Error()

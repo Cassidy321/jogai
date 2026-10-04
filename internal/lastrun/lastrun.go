@@ -77,6 +77,7 @@ type Day struct {
 	Status    Status    `json:"status"`
 	Error     string    `json:"error,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Hash      string    `json:"hash,omitempty"`
 }
 
 // Refused days are not retried: the model would refuse the same content again.

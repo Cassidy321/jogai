@@ -300,10 +300,21 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	recap, err := os.ReadFile(filepath.Join(outDir, noonDaysAgo(1).Format(devday.LabelFormat)+".md"))
+	if err != nil || !strings.Contains(string(recap), "## Hors projet") {
+		t.Errorf("recap = (%q, %v), want a Hors projet section for sessions started in a temp dir", recap, err)
+	}
 	if n := strings.Count(string(data), "call"); n != 2 {
 		t.Errorf("summarizer called %d times over two runs, want 2", n)
 	}
 
+	if n := archivedMessages(t); n != 4 {
+		t.Errorf("archive holds %d messages, want the 4 session lines", n)
+	}
+}
+
+func archivedMessages(t *testing.T) int {
+	t.Helper()
 	path, err := archive.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +324,53 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = store.Close() }()
-	if st, err := store.Stats(); err != nil || st.Messages != 4 {
-		t.Errorf("archive stats = (%+v, %v), want the 4 session lines", st, err)
+	st, err := store.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.Messages
+}
+
+func TestRun_KeepsARecapEditedByHand(t *testing.T) {
+	installClaudeStub(t)
+	t.Setenv("XPC_SERVICE_NAME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, noonDaysAgo(1))
+	outDir := writeRunConfig(t, home)
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	label := noonDaysAgo(1).Format(devday.LabelFormat)
+	path := filepath.Join(outDir, label+".md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := string(data) + "\nmy own note\n"
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := days[label]
+	d.Status = lastrun.StatusError
+	days[label] = d
+	if err := lastrun.SaveDays(days); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("catch-up run: %v", err)
+	}
+	if kept, _ := os.ReadFile(path); string(kept) != edited {
+		t.Errorf("the edited recap was replaced:\n%s", kept)
+	}
+	days, _ = lastrun.LoadDays()
+	if days[label].Status != lastrun.StatusOK {
+		t.Errorf("status = %s, want ok (the edited recap is kept)", days[label].Status)
 	}
 }
