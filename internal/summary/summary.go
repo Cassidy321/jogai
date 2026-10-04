@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -30,11 +32,31 @@ type Summarizer interface {
 	Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error)
 }
 
-func checkCLI(bin string) error {
-	if _, err := exec.LookPath(bin); err != nil {
-		return fmt.Errorf("%s CLI not found in PATH — if running from a schedule, run `jogai schedule start` to refresh the PATH", bin)
+// launchd starts jobs with a minimal PATH that misses where these CLIs install.
+var fallbackDirs = func() []string {
+	dirs := []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append([]string{filepath.Join(home, ".local", "bin"), filepath.Join(home, ".claude", "local")}, dirs...)
 	}
-	return nil
+	return dirs
+}
+
+func LookPath(bin string) (string, error) {
+	if p, err := exec.LookPath(bin); err == nil {
+		return p, nil
+	}
+	for _, dir := range fallbackDirs() {
+		p := filepath.Join(dir, bin)
+		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("%s CLI not found in PATH or in its usual install locations — install it and log in", bin)
+}
+
+func checkCLI(bin string) error {
+	_, err := LookPath(bin)
+	return err
 }
 
 func buildPrompt(day time.Time, sessions []parser.Session) (string, error) {

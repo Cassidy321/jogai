@@ -18,6 +18,7 @@ func TestCodexName(t *testing.T) {
 }
 
 func TestCodexCheckCLI_Missing(t *testing.T) {
+	noFallbackDirs(t)
 	// Force an empty PATH so the lookup fails regardless of the host.
 	t.Setenv("PATH", "")
 	err := Codex{}.CheckCLI()
@@ -37,6 +38,7 @@ func TestCodexGenerateNoSessions(t *testing.T) {
 }
 
 func TestCodexGenerate_MissingCLIReportsPath(t *testing.T) {
+	noFallbackDirs(t)
 	t.Setenv("PATH", "")
 	sessions := []parser.Session{{
 		ID: "s1", Tool: "codex", Project: "jogai",
