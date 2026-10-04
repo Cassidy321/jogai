@@ -36,21 +36,49 @@ func TestReduceTruncatesLongAssistantMessages(t *testing.T) {
 	}
 }
 
-func TestReduceKeepsUserMessagesIntact(t *testing.T) {
-	long := strings.Repeat("a", MaxAssistantChars+500)
-	sessions := []parser.Session{
-		{
-			ID:   "s1",
-			Tool: "claude-code",
-			Messages: []parser.Message{
-				{Role: "user", Content: long},
-			},
-		},
-	}
+func TestReduceTruncatesLongUserMessages(t *testing.T) {
+	long := strings.Repeat("a", MaxUserChars+500)
+	sessions := []parser.Session{{ID: "s1", Messages: []parser.Message{{Role: "user", Content: long}}}}
 
-	result := Reduce(sessions)
-	if result[0].Messages[0].Content != long {
-		t.Error("user messages should never be truncated")
+	got := Reduce(sessions)[0].Messages[0].Content
+	if n := utf8.RuneCountInString(got); n > MaxUserChars {
+		t.Errorf("user message has %d runes, want <= %d", n, MaxUserChars)
+	}
+	if !strings.Contains(got, "[...]") {
+		t.Error("a truncated user message should carry the [...] marker")
+	}
+}
+
+func TestReduceFitsBudgetShrinkingLongestFirst(t *testing.T) {
+	short := strings.Repeat("s", 100)
+	long := strings.Repeat("l", 1500)
+	sessions := []parser.Session{{ID: "s1", Messages: []parser.Message{
+		{Role: "user", Content: short},
+		{Role: "assistant", Content: long},
+		{Role: "user", Content: short},
+		{Role: "assistant", Content: long},
+	}}}
+
+	got := reduce(sessions, 1200)[0].Messages
+	total := 0
+	for _, m := range got {
+		total += utf8.RuneCountInString(m.Content)
+	}
+	if total > 1200 {
+		t.Errorf("total = %d runes, want <= 1200", total)
+	}
+	if got[0].Content != short || got[2].Content != short {
+		t.Error("short messages must stay intact while longer ones shrink")
+	}
+	if !strings.Contains(got[1].Content, "[...]") {
+		t.Error("long messages should be truncated with the marker")
+	}
+}
+
+func TestReduceUnderBudgetIsUntouched(t *testing.T) {
+	sessions := []parser.Session{{ID: "s1", Messages: []parser.Message{{Role: "user", Content: "hi"}}}}
+	if got := reduce(sessions, 10)[0].Messages[0].Content; got != "hi" {
+		t.Errorf("content = %q, want hi", got)
 	}
 }
 

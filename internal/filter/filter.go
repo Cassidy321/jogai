@@ -2,6 +2,7 @@ package filter
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -10,11 +11,18 @@ import (
 
 const (
 	MaxAssistantChars = 2000
-	marker            = "\n[...]\n"
-	markerRuneLen     = 7
+	MaxUserChars      = 4000
+	// Heavy days (600k+ characters) otherwise hit the summarizer timeout.
+	MaxPromptChars = 300_000
+	marker         = "\n[...]\n"
+	markerRuneLen  = 7
 )
 
 func Reduce(sessions []parser.Session) []parser.Session {
+	return reduce(sessions, MaxPromptChars)
+}
+
+func reduce(sessions []parser.Session, budget int) []parser.Session {
 	result := make([]parser.Session, 0, len(sessions))
 	for _, s := range sessions {
 		filtered := reduceSession(s)
@@ -22,6 +30,7 @@ func Reduce(sessions []parser.Session) []parser.Session {
 			result = append(result, filtered)
 		}
 	}
+	fitBudget(result, budget)
 	return result
 }
 
@@ -29,13 +38,58 @@ func reduceSession(s parser.Session) parser.Session {
 	messages := make([]parser.Message, 0, len(s.Messages))
 	for _, m := range s.Messages {
 		if m.Role == "assistant" {
-			m.Content = collapseCodeBlocks(m.Content)
-			m.Content = truncateRunes(m.Content, MaxAssistantChars)
+			m.Content = truncateRunes(collapseCodeBlocks(m.Content), MaxAssistantChars)
+		} else {
+			m.Content = truncateRunes(m.Content, MaxUserChars)
 		}
 		messages = append(messages, m)
 	}
 	s.Messages = messages
 	return s
+}
+
+// Caps the longest messages first so short ones, most of what the user typed,
+// are never cut to make room for a few huge pastes or answers.
+func fitBudget(sessions []parser.Session, budget int) {
+	var lengths []int
+	total := 0
+	for _, s := range sessions {
+		for _, m := range s.Messages {
+			n := utf8.RuneCountInString(m.Content)
+			lengths = append(lengths, n)
+			total += n
+		}
+	}
+	if total <= budget {
+		return
+	}
+	limit := capFor(lengths, budget)
+	for i := range sessions {
+		for j := range sessions[i].Messages {
+			sessions[i].Messages[j].Content = truncateRunes(sessions[i].Messages[j].Content, limit)
+		}
+	}
+}
+
+func capFor(lengths []int, budget int) int {
+	lo, hi := markerRuneLen+1, slices.Max(lengths)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		if cappedSum(lengths, mid) <= budget {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	return lo
+}
+
+func cappedSum(lengths []int, limit int) int {
+	sum := 0
+	for _, n := range lengths {
+		sum += min(n, limit)
+	}
+	return sum
 }
 
 func collapseCodeBlocks(s string) string {
