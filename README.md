@@ -44,31 +44,30 @@ Every recap targets a specific dev day. The file name is the **date the window s
 ### Generate a recap
 
 ```bash
-# Recap the previous (completed) dev day
+# Recap every completed dev day that has no recap yet (up to 14 days back)
 jogai run
 
-# Recap a specific dev day
+# Recap, or regenerate, a specific dev day
 jogai run --day 2026-04-01
 ```
 
-All recaps are written as `YYYY-MM-DD.md`. Manual and scheduled runs produce the same file for the same day — the overwrite is idempotent.
+All recaps are written as `YYYY-MM-DD.md`. jogai remembers the outcome of each dev day: a day that failed (network, sleep, rate limit) is retried automatically on the next run, and a day without sessions is not tried again.
 
 ### Schedule daily recaps
 
 ```bash
-# Install a launchd job that fires at your day_end
-jogai schedule start
-
-# Check status
+jogai schedule start    # install the launchd job
 jogai schedule status
-
-# Stop
 jogai schedule stop
 ```
 
-The schedule runs `jogai run` automatically at the configured `day_end`. If your Mac is asleep, macOS Power Nap wakes it briefly to run the job. If it's fully off, launchd catches up when it wakes.
+The job runs `jogai run` at your `day_end` and each time you log in. If your Mac was asleep at `day_end`, launchd runs it when the Mac wakes; if it was off, the run at login catches up. Every dev day missed in between is recapped, up to 14 days back.
 
-To change the schedule time, re-run `jogai init` to update `day_end`, then `jogai schedule stop && jogai schedule start` to regenerate the plist.
+Changing `day_end` with `jogai init` updates the schedule automatically, and so does upgrading jogai.
+
+### Updates
+
+When jogai is installed with Homebrew, the scheduled run upgrades it at most once a day (`brew upgrade cassidy321/tap/jogai`). To turn this off, add `"auto_update": false` to `~/.config/jogai/config.json`.
 
 ### Check system health
 
@@ -87,7 +86,7 @@ jogai status
   Last run:   2026-04-19 05:00 (dev day 2026-04-18) — ok
 ```
 
-If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jogai status` displays the exact catch-up command. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body so partial failures are visible at the top of the file.
+`jogai status` lists the recent dev days that failed (retried on the next run) or were refused by the model (with the command to retry them by hand), and how many days are still waiting for the next run. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body.
 
 ## Requirements
 
@@ -97,7 +96,7 @@ If a scheduled run didn't produce a file (e.g. permission denied, Mac off), `jog
 ## How It Works
 
 1. **Parse** — reads session history from the sources you picked at `jogai init` (Claude Code from `~/.claude/projects/`, Codex from `~/.codex/sessions/`)
-2. **Filter** — collapses code blocks and truncates long messages to reduce tokens
+2. **Filter** — keeps what you typed and what the assistant answered; drops injected context, command output and automated sessions (SDK, `claude -p`, `codex exec`); collapses code blocks and fits the day into a bounded prompt
 3. **Summarize** — sends filtered sessions to your chosen summarizer (Claude or Codex) for a concise recap
 4. **Write** — saves the recap as `YYYY-MM-DD.md` in your output directory
 
