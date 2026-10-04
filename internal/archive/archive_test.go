@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -58,5 +59,42 @@ func TestOpen_RefusesANewerSchema(t *testing.T) {
 	_ = s.Close()
 	if _, err := Open(path); !errors.Is(err, ErrNewerSchema) {
 		t.Errorf("Open = %v, want ErrNewerSchema", err)
+	}
+}
+
+func TestOpen_MigratesAVersion1Archive(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "jogai.db")
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range migrations[0] {
+		if _, err := raw.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := raw.Exec(`PRAGMA user_version = 1`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO messages VALUES ('u1', 's1', 1, 'user', 'hi', '', '/w', '/w', '', 0, 0, '')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = raw.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	var indexed int
+	if err := s.db.QueryRow(`SELECT indexed FROM messages WHERE id = 'u1'`).Scan(&indexed); err != nil || indexed != 0 {
+		t.Errorf("indexed = (%d, %v), want 0 so the message gets indexed", indexed, err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO docs(id, kind, session_id, project, git_branch, role, title, ts, text) VALUES ('d1', 'message', 's1', '', '', 'user', '', 1, 'réglé')`); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := s.db.QueryRow(`SELECT count(*) FROM docs_words WHERE docs_words MATCH '"regle"'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("fts hit = (%d, %v), want 1", n, err)
 	}
 }

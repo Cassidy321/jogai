@@ -24,8 +24,8 @@ func TestIsTempBinary(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			if got := isTempBinary(tt.path); got != tt.want {
-				t.Errorf("isTempBinary(%q) = %v, want %v", tt.path, got, tt.want)
+			if got := IsTempBinary(tt.path); got != tt.want {
+				t.Errorf("IsTempBinary(%q) = %v, want %v", tt.path, got, tt.want)
 			}
 		})
 	}

@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/Cassidy321/jogai/internal/lock"
 )
 
 type Config struct {
@@ -122,3 +124,15 @@ var (
 	ErrNotConfigured = fmt.Errorf("jogai not configured — run 'jogai init' first")
 	ErrLocked        = errors.New("another jogai run is already in progress")
 )
+
+func AcquireLock() (func(), error) {
+	dir, err := Dir()
+	if err != nil {
+		return nil, err
+	}
+	release, err := lock.Try(filepath.Join(dir, "run.lock"))
+	if errors.Is(err, lock.ErrBusy) {
+		return nil, ErrLocked
+	}
+	return release, err
+}

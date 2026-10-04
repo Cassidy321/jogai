@@ -51,6 +51,11 @@ func (c *RunCmd) Run() error {
 		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
 	repairSchedule()
+	if changed, err := registerMCP(stableExecutable()); err != nil {
+		logErrf("⚠ could not register jogai in Claude Code: %v", err)
+	} else if changed {
+		logf("Claude Code can now search your past sessions (MCP server %q).", mcpName)
+	}
 	defer maybeUpdate(cfg)
 	return c.recapPending(cfg)
 }
@@ -91,7 +96,7 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	if len(sources) == 0 {
 		return fmt.Errorf("no sources configured — run 'jogai init'")
 	}
-	archiveSessions(sources)
+	archiveSessions(cfg)
 	parsers := make([]parser.Parser, len(sources))
 	for i, s := range sources {
 		parsers[i] = s

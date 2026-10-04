@@ -1,8 +1,8 @@
 //go:build !unix
 
-package config
+package lock
 
 // No scheduler on these platforms: runs are manual and never overlap.
-func AcquireLock() (func(), error) {
+func Try(string) (func(), error) {
 	return func() {}, nil
 }

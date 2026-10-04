@@ -47,14 +47,35 @@ func Daily(ctx context.Context) (bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, brew, "upgrade", formula).CombinedOutput()
+	errPath := filepath.Join(dir, "last_update_error")
 	if err != nil {
-		return true, fmt.Errorf("brew upgrade %s: %w: %s", formula, err, lastLine(out))
+		failure := fmt.Errorf("brew upgrade %s: %w: %s", formula, err, lastLine(out))
+		_ = os.WriteFile(errPath, []byte(failure.Error()), 0o644)
+		return true, failure
 	}
+	_ = os.Remove(errPath)
 	return true, nil
 }
 
-func brewFor(path string) (string, bool) {
+func LastError() string {
+	dir, err := config.Dir()
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "last_update_error"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func HomebrewPrefix(path string) (string, bool) {
 	prefix, _, ok := strings.Cut(path, "/Cellar/jogai/")
+	return prefix, ok
+}
+
+func brewFor(path string) (string, bool) {
+	prefix, ok := HomebrewPrefix(path)
 	if !ok {
 		return "", false
 	}
