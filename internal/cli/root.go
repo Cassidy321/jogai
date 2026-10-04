@@ -15,6 +15,8 @@ type CLI struct {
 	Run      RunCmd      `cmd:"" help:"Generate a recap now."`
 	Schedule ScheduleCmd `cmd:"" help:"Manage scheduled recaps."`
 	Status   StatusCmd   `cmd:"" help:"Show current config and system health."`
+	Search   SearchCmd   `cmd:"" help:"Search past sessions and recaps."`
+	MCP      MCPCmd      `cmd:"" name:"mcp" help:"Serve the archive to Claude Code (started by Claude Code)."`
 
 	Version VersionCmd `cmd:"" help:"Print version."`
 }
