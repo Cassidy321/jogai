@@ -70,7 +70,7 @@ func archived(t *testing.T) *archive.Store {
 
 func TestServer(t *testing.T) {
 	refreshed := 0
-	cs := connect(t, Deps{Store: archived(t), Refresh: func() { refreshed++ }, Health: []string{"the recap of 2026-10-02 failed"}, Version: "test"})
+	cs := connect(t, Deps{Store: archived(t), Refresh: func() bool { refreshed++; return false }, Health: []string{"the recap of 2026-10-02 failed"}, Version: "test"})
 	ctx := context.Background()
 
 	instructions := cs.InitializeResult().Instructions
@@ -99,8 +99,16 @@ func TestServer(t *testing.T) {
 }
 
 func TestServer_HealthyInstructionsStayShort(t *testing.T) {
-	cs := connect(t, Deps{Store: archived(t), Refresh: func() {}, Version: "test"})
+	cs := connect(t, Deps{Store: archived(t), Refresh: func() bool { return false }, Version: "test"})
 	if strings.Contains(cs.InitializeResult().Instructions, "attention") {
 		t.Error("no health section expected when everything is fine")
+	}
+}
+
+func TestServer_SaysWhenAnotherProcessIsRefreshing(t *testing.T) {
+	cs := connect(t, Deps{Store: archived(t), Refresh: func() bool { return true }, Version: "test"})
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "search", Arguments: map[string]any{"query": "caffeinate"}})
+	if err != nil || !strings.Contains(text(res), "id: m1") || !strings.Contains(text(res), "may be missing") {
+		t.Errorf("search during a foreign refresh = (%q, %v)", text(res), err)
 	}
 }

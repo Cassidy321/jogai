@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -27,10 +28,17 @@ func (c *MCPCmd) Run() error {
 		return err
 	}
 	defer func() { _ = env.store.Close() }()
-	refresh := func() {
-		if _, err := env.refresh(); err != nil {
+	// The first search must wait for the startup refresh: on a fresh install it
+	// is the initial import, and searching before it ends finds nothing.
+	var mu sync.Mutex
+	refresh := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		res, err := env.refresh()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "jogai: archive:", err)
 		}
+		return res.Busy
 	}
 	go refresh()
 

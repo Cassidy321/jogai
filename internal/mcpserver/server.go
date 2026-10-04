@@ -14,9 +14,11 @@ import (
 
 const readBudget = 20_000
 
+// Refresh reports true when another process was already refreshing, so the
+// archive may miss the newest sessions.
 type Deps struct {
 	Store          *archive.Store
-	Refresh        func()
+	Refresh        func() (busy bool)
 	ExcludeSession string
 	Health         []string
 	Version        string
@@ -67,7 +69,7 @@ type readInput struct {
 }
 
 func (d Deps) search(_ context.Context, _ *mcp.CallToolRequest, in searchInput) (*mcp.CallToolResult, any, error) {
-	d.Refresh()
+	busy := d.Refresh()
 	q := archive.Query{Text: in.Query, Project: in.Project, Kind: in.Kind, Limit: in.Limit, ExcludeSession: d.ExcludeSession}
 	var err error
 	if q.Since, err = parseDay(in.Since); err != nil {
@@ -80,10 +82,14 @@ func (d Deps) search(_ context.Context, _ *mcp.CallToolRequest, in searchInput) 
 	if err != nil {
 		return nil, nil, err
 	}
+	out := archive.FormatHits(hits)
 	if len(hits) == 0 {
-		return textResult("No results. Try other keywords, synonyms, the other language (French/English), or fewer filters."), nil, nil
+		out = "No results. Try other keywords, synonyms, the other language (French/English), or fewer filters."
 	}
-	return textResult(archive.FormatHits(hits)), nil, nil
+	if busy {
+		out += "\n\n(Another jogai process is updating the archive right now: the newest sessions may be missing. Search again in a minute if this matters.)"
+	}
+	return textResult(out), nil, nil
 }
 
 func (d Deps) read(_ context.Context, _ *mcp.CallToolRequest, in readInput) (*mcp.CallToolResult, any, error) {
