@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/Cassidy321/jogai/internal/archive"
 	"github.com/Cassidy321/jogai/internal/config"
@@ -40,24 +42,21 @@ func openArchive(cfg *config.Config) (*archiveEnv, error) {
 	return &archiveEnv{store: store, sources: sources, resolver: resolver, recapDir: cfg.OutputDir}, nil
 }
 
-func (e *archiveEnv) refresh() (archive.RefreshResult, error) {
-	return e.store.Refresh(e.sources, e.resolver, e.recapDir)
+func (e *archiveEnv) refresh(wait time.Duration) (archive.RefreshResult, error) {
+	return e.store.Refresh(e.sources, e.resolver, e.recapDir, wait)
 }
 
-func archiveSessions(cfg *config.Config) {
-	env, err := openArchive(cfg)
-	if err != nil {
-		logErrf("⚠ archive: %v", err)
-		return
-	}
-	defer func() { _ = env.store.Close() }()
-	res, err := env.refresh()
-	if err != nil {
-		logErrf("⚠ archive: %v", err)
-	}
+func refreshArchive(env *archiveEnv) []string {
+	res, err := env.refresh(5 * time.Minute)
 	if res.Ingested.Messages > 0 || res.Recaps > 0 {
 		logf("Archived %d new message(s), indexed %d recap file(s)", res.Ingested.Messages, res.Recaps)
 	}
+	if err == nil {
+		return nil
+	}
+	logErrf("⚠ archive: %v", err)
+	first, _, _ := strings.Cut(err.Error(), "\n")
+	return []string{"some sessions could not be read: " + first}
 }
 
 func printArchiveLine() bool {

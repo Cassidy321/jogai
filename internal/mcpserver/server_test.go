@@ -62,7 +62,7 @@ func archived(t *testing.T) *archive.Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Refresh([]parser.Source{cc}, &project.Resolver{Home: home}, ""); err != nil {
+	if _, err := store.Refresh([]parser.Source{cc}, &project.Resolver{Home: home}, "", 0); err != nil {
 		t.Fatal(err)
 	}
 	return store

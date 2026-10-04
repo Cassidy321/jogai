@@ -34,7 +34,7 @@ func (c *MCPCmd) Run() error {
 	refresh := func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		res, err := env.refresh()
+		res, err := env.refresh(0)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "jogai: archive:", err)
 		}

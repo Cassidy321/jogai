@@ -89,18 +89,12 @@ func repairSchedule() {
 }
 
 func (c *RunCmd) recapPending(cfg *config.Config) error {
-	sources, err := activeSources(cfg)
+	env, err := openArchive(cfg)
 	if err != nil {
-		return err
+		return fmt.Errorf("session archive: %w", err)
 	}
-	if len(sources) == 0 {
-		return fmt.Errorf("no sources configured — run 'jogai init'")
-	}
-	archiveSessions(cfg)
-	parsers := make([]parser.Parser, len(sources))
-	for i, s := range sources {
-		parsers[i] = s
-	}
+	defer func() { _ = env.store.Close() }()
+	warnings := refreshArchive(env)
 	sizer := selectSummarizer(cfg.Summarizer)
 	if err := sizer.CheckCLI(); err != nil {
 		return err
@@ -117,20 +111,13 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	}
 	logf("Recapping %s", describeSpans(spans))
 
-	multi := &parser.MultiParser{Parsers: parsers}
 	p := &recap.Pipeline{
-		Parser:     multi,
+		Archive:    env.store,
 		Summarizer: summary.NewRetry(sizer),
 		Writer:     output.NewMarkdown(cfg.OutputDir),
+		Warnings:   warnings,
 	}
-	results, err := p.Run(context.Background(), spans)
-	if err != nil {
-		results = failAll(spans, err)
-	}
-	warnings := multi.Warnings()
-	for _, w := range warnings {
-		logf("⚠ %s", w)
-	}
+	results := p.Run(context.Background(), spans)
 
 	failed := record(days, results, warnings)
 	if err := lastrun.SaveDays(days); err != nil {
@@ -209,14 +196,6 @@ func describeSpans(spans []devday.Span) string {
 		labels[i] = s.Label
 	}
 	return fmt.Sprintf("%d dev days: %s", len(spans), strings.Join(labels, ", "))
-}
-
-func failAll(spans []devday.Span, err error) []recap.Day {
-	days := make([]recap.Day, len(spans))
-	for i, s := range spans {
-		days[i] = recap.Day{Span: s, Err: err}
-	}
-	return days
 }
 
 func record(days map[string]lastrun.Day, results []recap.Day, warnings []string) int {

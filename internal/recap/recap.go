@@ -2,13 +2,15 @@ package recap
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/archive"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/filter"
-	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -16,10 +18,15 @@ type Writer interface {
 	Write(s *summary.Summary) error
 }
 
+type Archive interface {
+	Day(since, until time.Time) ([]archive.Activity, error)
+}
+
 type Pipeline struct {
-	Parser     parser.Parser
+	Archive    Archive
 	Summarizer summary.Summarizer
 	Writer     Writer
+	Warnings   []string
 }
 
 type Day struct {
@@ -28,69 +35,92 @@ type Day struct {
 	Err     error
 }
 
-// One failing day must not block the others; the returned error is only for
-// failures that hit every day.
-func (p *Pipeline) Run(ctx context.Context, spans []devday.Span) ([]Day, error) {
-	if len(spans) == 0 {
-		return nil, nil
-	}
-	all, err := p.Parser.Sessions(spans[0].Start)
-	if err != nil {
-		return nil, fmt.Errorf("parse sessions: %w", err)
-	}
-	warnings := collectWarnings(p.Parser)
+const (
+	outsideProjects = "Hors projet"
+	refusedNote     = "_Résumé indisponible : le modèle a refusé de résumer cette partie de la journée._"
+)
 
+func (p *Pipeline) Run(ctx context.Context, spans []devday.Span) []Day {
 	days := make([]Day, 0, len(spans))
 	for _, span := range spans {
-		s, err := p.runDay(ctx, span, all, warnings)
+		s, err := p.runDay(ctx, span)
 		days = append(days, Day{Span: span, Summary: s, Err: err})
 	}
-	return days, nil
+	return days
 }
 
-func (p *Pipeline) runDay(ctx context.Context, span devday.Span, all []parser.Session, warnings []string) (*summary.Summary, error) {
-	sessions := sessionsIn(all, span.Start, span.End)
-	if len(sessions) == 0 {
+// One failing project must not cost the others: the file is written with the
+// sections that worked and the day is retried, as a whole, on the next run.
+func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summary, error) {
+	activities, err := p.Archive.Day(span.Start, span.End)
+	if err != nil {
+		return nil, fmt.Errorf("read archive: %w", err)
+	}
+	if len(activities) == 0 {
 		return nil, nil
 	}
-	s, err := p.Summarizer.Generate(ctx, summary.Request{Day: span.Start, Sessions: filter.Reduce(sessions)})
-	if err != nil {
-		return nil, fmt.Errorf("generate summary: %w", err)
+	var sections []string
+	var failures []error
+	for _, a := range activities {
+		heading := a.Project
+		if heading == "" {
+			heading = outsideProjects
+		}
+		body, err := p.summarize(ctx, span, a)
+		if err != nil {
+			failures = append(failures, fmt.Errorf("%s: %w", heading, err))
+			continue
+		}
+		sections = append(sections, "## "+heading+"\n\n"+body)
 	}
-	s.Date = span.Start
-	s.WindowStart = span.Start
-	s.WindowEnd = span.End
-	s.Warnings = warnings
+	failed := errors.Join(failures...)
+	if len(sections) == 0 {
+		return nil, failed
+	}
+	warnings := p.Warnings
+	if failed != nil {
+		warnings = append(slices.Clone(warnings), fmt.Sprintf("%d project section(s) missing, retried on the next run", len(failures)))
+	}
+	s := &summary.Summary{
+		Date:        span.Start,
+		WindowStart: span.Start,
+		WindowEnd:   span.End,
+		Content:     strings.Join(sections, "\n\n"),
+		Warnings:    warnings,
+	}
 	if err := p.Writer.Write(s); err != nil {
 		return nil, fmt.Errorf("write output: %w", err)
 	}
-	return s, nil
+	return s, failed
 }
 
-func collectWarnings(p parser.Parser) []string {
-	if w, ok := p.(interface{ Warnings() []string }); ok {
-		return w.Warnings()
+func (p *Pipeline) summarize(ctx context.Context, span devday.Span, a archive.Activity) (string, error) {
+	s, err := p.Summarizer.Generate(ctx, summary.Request{Day: span.Start, Project: a.Project, Sessions: filter.Reduce(a.Sessions)})
+	if err != nil && summary.KindOf(err) == summary.KindRefused {
+		return refusedNote, nil
 	}
-	return nil
+	if err != nil {
+		return "", err
+	}
+	return flattenHeadings(strings.TrimSpace(s.Content)), nil
 }
 
-func sessionsIn(all []parser.Session, since, until time.Time) []parser.Session {
-	var out []parser.Session
-	for _, s := range all {
-		var msgs []parser.Message
-		for _, m := range s.Messages {
-			if !m.Timestamp.Before(since) && m.Timestamp.Before(until) {
-				msgs = append(msgs, m)
-			}
-		}
-		if len(msgs) == 0 {
+// jogai's "## project" headings are the file's structure (the search index
+// splits recaps on them): headings written by the model become bold lines.
+func flattenHeadings(body string) string {
+	lines := strings.Split(body, "\n")
+	inCode := false
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "```") {
+			inCode = !inCode
 			continue
 		}
-		s.Messages = msgs
-		s.StartedAt = msgs[0].Timestamp
-		s.EndedAt = msgs[len(msgs)-1].Timestamp
-		out = append(out, s)
+		if inCode || !strings.HasPrefix(l, "#") {
+			continue
+		}
+		if t := strings.TrimSpace(strings.TrimLeft(l, "#")); t != "" {
+			lines[i] = "**" + t + "**"
+		}
 	}
-	slices.SortStableFunc(out, func(a, b parser.Session) int { return a.StartedAt.Compare(b.StartedAt) })
-	return out
+	return strings.Join(lines, "\n")
 }
