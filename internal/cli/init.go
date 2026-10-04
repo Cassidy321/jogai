@@ -11,6 +11,7 @@ import (
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/parser"
+	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -116,6 +117,7 @@ func (c *InitCmd) Run() error {
 	fmt.Printf("  ✓ Dev day ends at %s\n", parsedDayEnd)
 	fmt.Printf("  ✓ Sources: %v\n", selectedSources)
 	fmt.Printf("  ✓ Summarizer: %s\n", summarizer)
+	updateSchedule()
 
 	if err := probeWriteAccess(outputDir); err != nil {
 		fmt.Printf("\n  ! Could not write to %s: %s\n", outputDir, err)
@@ -126,6 +128,20 @@ func (c *InitCmd) Run() error {
 
 	fmt.Println("\nRun 'jogai run' to generate your first recap.")
 	return nil
+}
+
+func updateSchedule() {
+	s, err := scheduler.New()
+	if err != nil {
+		return
+	}
+	changed, err := s.Repair()
+	switch {
+	case err != nil:
+		fmt.Printf("  ! Could not update the schedule: %v\n", err)
+	case changed:
+		fmt.Println("  ✓ Schedule updated")
+	}
 }
 
 func buildInitForm(det detectedSources, outputDir, dayEnd *string, selectedSources *[]string, summarizer *string) *huh.Form {

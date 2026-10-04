@@ -15,6 +15,7 @@ import (
 	"github.com/Cassidy321/jogai/internal/output"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/recap"
+	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
 )
 
@@ -48,7 +49,23 @@ func (c *RunCmd) Run() error {
 	if cfg.DayEnd == nil {
 		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
+	repairSchedule()
 	return c.recapPending(cfg)
+}
+
+func repairSchedule() {
+	s, err := scheduler.New()
+	if err != nil {
+		return
+	}
+	changed, err := s.Repair()
+	if err != nil {
+		logErrf("⚠ could not update the schedule: %v", err)
+		return
+	}
+	if changed {
+		logf("Schedule updated to match this version of jogai.")
+	}
 }
 
 func (c *RunCmd) recapPending(cfg *config.Config) error {

@@ -168,11 +168,11 @@ func loadScheduleJob() (*scheduler.Job, error) {
 	if err != nil {
 		return nil, err
 	}
-	jobs, err := s.Status()
-	if err != nil || len(jobs) == 0 {
+	job, err := s.Status()
+	if err != nil {
 		return nil, err
 	}
-	return &jobs[0], nil
+	return &job, nil
 }
 
 func printScheduleLine(job *scheduler.Job, err error) {

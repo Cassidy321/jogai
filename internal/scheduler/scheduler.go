@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"time"
 
@@ -12,7 +13,8 @@ import (
 type Scheduler interface {
 	Install() error
 	Uninstall() error
-	Status() ([]Job, error)
+	Status() (Job, error)
+	Repair() (bool, error)
 }
 
 // Job represents the scheduled daily recap.
@@ -21,6 +23,9 @@ type Job struct {
 	Active  bool
 	NextRun time.Time
 }
+
+// launchd sets XPC_SERVICE_NAME to the job label.
+func InJob() bool { return os.Getenv("XPC_SERVICE_NAME") == launchdLabel }
 
 func nextRun(t config.TimeOfDay, now time.Time) time.Time {
 	candidate := time.Date(now.Year(), now.Month(), now.Day(),
