@@ -78,6 +78,28 @@ func (c *ClaudeCode) Sessions(since time.Time) ([]Session, error) {
 	return sessions, nil
 }
 
+// Subagent transcripts sit one level deeper (<session>/subagents/) and are left
+// out: what they found already shows up in the parent session.
+func (c *ClaudeCode) Files() ([]string, error) {
+	return filepath.Glob(filepath.Join(c.baseDir, "*", "*.jsonl"))
+}
+
+func (c *ClaudeCode) ReadFrom(path string, cur Cursor) ([]Record, Cursor, error) {
+	var out []Record
+	next, err := readLines(path, cur.Offset, func(raw []byte, at int64) {
+		r, ok := decodeClaudeLine(raw)
+		if !ok {
+			return
+		}
+		if r.ID == "" && r.Title == "" {
+			r.ID = fmt.Sprintf("%s:%d", r.SessionID, at)
+		}
+		out = append(out, r)
+	})
+	cur.Offset = next
+	return out, cur, err
+}
+
 type jsonlLine struct {
 	Type             string    `json:"type"`
 	UUID             string    `json:"uuid"`

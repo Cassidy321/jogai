@@ -2,7 +2,9 @@ package parser
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -50,6 +52,32 @@ func scanJSONL(path string, perLine func(line []byte)) error {
 		return fmt.Errorf("scan %s: %w", filepath.Base(path), err)
 	}
 	return nil
+}
+
+// A session being written ends with a partial line: stop before it so the next
+// read starts from that line instead of skipping it.
+func readLines(path string, offset int64, fn func(line []byte, at int64)) (int64, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return offset, err
+	}
+	defer func() { _ = f.Close() }()
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return offset, err
+	}
+	r := bufio.NewReaderSize(f, 64*1024)
+	pos := offset
+	for {
+		line, err := r.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return pos, nil
+		}
+		if err != nil {
+			return pos, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+		}
+		fn(line[:len(line)-1], pos)
+		pos += int64(len(line))
+	}
 }
 
 func projectFromCwd(cwd string) string {
