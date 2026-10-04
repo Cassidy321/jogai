@@ -44,10 +44,44 @@ var migrations = [][]string{
 		`CREATE TABLE cursors (path TEXT PRIMARY KEY, pos INTEGER NOT NULL, session_id TEXT NOT NULL, cwd TEXT NOT NULL, skip INTEGER NOT NULL)`,
 		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
 	},
+	{
+		// Reset by a future migration when the cleaning rules change, so every
+		// message is cleaned and indexed again.
+		`ALTER TABLE messages ADD COLUMN indexed INTEGER NOT NULL DEFAULT 0`,
+		// doc is an explicit INTEGER PRIMARY KEY because the FTS tables point at
+		// it, and VACUUM may renumber an implicit rowid.
+		`CREATE TABLE docs (
+			doc INTEGER PRIMARY KEY,
+			id TEXT NOT NULL UNIQUE,
+			kind TEXT NOT NULL,
+			session_id TEXT NOT NULL,
+			project TEXT NOT NULL,
+			git_branch TEXT NOT NULL,
+			role TEXT NOT NULL,
+			title TEXT NOT NULL,
+			ts INTEGER NOT NULL,
+			text TEXT NOT NULL
+		)`,
+		`CREATE INDEX docs_by_session ON docs(session_id, ts, doc)`,
+		`CREATE VIRTUAL TABLE docs_words USING fts5(text, content='docs', content_rowid='doc', tokenize='unicode61 remove_diacritics 2', prefix='2 3')`,
+		`CREATE VIRTUAL TABLE docs_grams USING fts5(text, content='docs', content_rowid='doc', tokenize='trigram')`,
+		// No UPDATE trigger: docs are only inserted and deleted. Updating a doc in
+		// place would leave the FTS tables pointing at the old text.
+		`CREATE TRIGGER docs_insert AFTER INSERT ON docs BEGIN
+			INSERT INTO docs_words(rowid, text) VALUES (new.doc, new.text);
+			INSERT INTO docs_grams(rowid, text) VALUES (new.doc, new.text);
+		END`,
+		`CREATE TRIGGER docs_delete AFTER DELETE ON docs BEGIN
+			INSERT INTO docs_words(docs_words, rowid, text) VALUES ('delete', old.doc, old.text);
+			INSERT INTO docs_grams(docs_grams, rowid, text) VALUES ('delete', old.doc, old.text);
+		END`,
+		`CREATE TABLE recap_files (path TEXT PRIMARY KEY, mtime INTEGER NOT NULL)`,
+	},
 }
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 func DefaultPath() (string, error) {
@@ -74,7 +108,7 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open archive: %w", err)
 	}
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
