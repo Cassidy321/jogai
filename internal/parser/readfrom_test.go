@@ -3,6 +3,7 @@ package parser
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +69,56 @@ func TestClaudeFiles_SkipsSubagents(t *testing.T) {
 	files, err := cc.Files()
 	if err != nil || len(files) != 1 || files[0] != main {
 		t.Errorf("Files = (%v, %v), want only %s", files, err, main)
+	}
+}
+
+func TestCodexReadFrom_CarriesSessionStateAcrossReads(t *testing.T) {
+	cx := &Codex{baseDir: t.TempDir()}
+	path := filepath.Join(cx.baseDir, "2026", "10", "01", "rollout-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, path, strings.Join([]string{
+		`{"timestamp":"2026-10-01T10:00:00Z","type":"session_meta","payload":{"id":"cx1","cwd":"/w/dokaa","originator":"codex-tui"}}`,
+		`{"timestamp":"2026-10-01T10:00:01Z","type":"event_msg","payload":{"type":"user_message","message":"regarde la PR"}}`,
+	}, "\n")+"\n")
+
+	records, cur, err := cx.ReadFrom(path, Cursor{})
+	if err != nil || len(records) != 1 || records[0].SessionID != "cx1" || records[0].Cwd != "/w/dokaa" {
+		t.Fatalf("first read = (%+v, %v)", records, err)
+	}
+
+	appendFile(t, path, strings.Join([]string{
+		`{"timestamp":"2026-10-01T10:05:00Z","type":"turn_context","payload":{"cwd":"/w/dokaa/apps/forms"}}`,
+		`{"timestamp":"2026-10-01T10:05:01Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Je regarde."}]}}`,
+	}, "\n")+"\n")
+	records, _, err = cx.ReadFrom(path, cur)
+	if err != nil || len(records) != 1 {
+		t.Fatalf("resumed read = (%+v, %v)", records, err)
+	}
+	if r := records[0]; r.SessionID != "cx1" || r.Cwd != "/w/dokaa/apps/forms" || r.Role != "assistant" {
+		t.Errorf("resumed record = %+v, want session cx1 in the turn's cwd", r)
+	}
+}
+
+func TestCodexReadFrom_SkipsAutomatedSessionsForGood(t *testing.T) {
+	cx := &Codex{baseDir: t.TempDir()}
+	path := filepath.Join(cx.baseDir, "rollout-sdk.jsonl")
+	src, err := os.ReadFile(filepath.Join("testdata", "codex_sdk_cwd.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendFile(t, path, string(src))
+
+	records, cur, err := cx.ReadFrom(path, Cursor{})
+	if err != nil || len(records) != 0 || !cur.Skip {
+		t.Errorf("ReadFrom = (%+v, %+v, %v), want nothing and a skip cursor", records, cur, err)
+	}
+}
+
+func TestCodexFiles_MissingDirIsEmpty(t *testing.T) {
+	cx := &Codex{baseDir: filepath.Join(t.TempDir(), "missing")}
+	if files, err := cx.Files(); err != nil || len(files) != 0 {
+		t.Errorf("Files = (%v, %v), want none", files, err)
 	}
 }

@@ -2,7 +2,9 @@ package parser
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,68 +92,104 @@ type codexResponseItem struct {
 	} `json:"content"`
 }
 
-func parseCodexSessionFile(path string) (*Session, error) {
-	messages := make([]Message, 0, 128)
-	var sessionID, project string
-	var startedAt, endedAt time.Time
-	interactive := true
+type codexDecoder struct {
+	cur Cursor
+}
 
-	err := scanJSONL(path, func(raw []byte) {
-		var line codexLine
-		if err := json.Unmarshal(raw, &line); err != nil {
-			return
+// Only TUI sessions are user work: SDK and `codex exec` runs are automation, and
+// the Claude Code plugin's runs already show up in the Claude Code transcript.
+func (d *codexDecoder) decode(raw []byte, at int64) (Record, bool) {
+	var line codexLine
+	if json.Unmarshal(raw, &line) != nil {
+		return Record{}, false
+	}
+	var msg Message
+	var ok bool
+	switch line.Type {
+	case "session_meta":
+		var meta codexSessionMeta
+		if json.Unmarshal(line.Payload, &meta) == nil {
+			d.cur.SessionID, d.cur.Cwd = meta.ID, meta.Cwd
+			d.cur.Skip = meta.Originator != "" && meta.Originator != "codex-tui"
 		}
-		switch line.Type {
-		case "session_meta":
-			interactive = extractCodexSessionMeta(line, &sessionID, &project, &startedAt)
-		case "event_msg":
-			if msg, ok := extractCodexUserEvent(line); ok {
-				messages = append(messages, msg)
-				if startedAt.IsZero() {
-					startedAt = line.Timestamp
-				}
-				endedAt = line.Timestamp
-			}
-		case "response_item":
-			if msg, ok := extractCodexAssistantMessage(line); ok {
-				messages = append(messages, msg)
-				if startedAt.IsZero() {
-					startedAt = line.Timestamp
-				}
-				endedAt = line.Timestamp
-			}
+	case "turn_context":
+		var tc struct {
+			Cwd string `json:"cwd"`
+		}
+		if json.Unmarshal(line.Payload, &tc) == nil && tc.Cwd != "" {
+			d.cur.Cwd = tc.Cwd
+		}
+	case "event_msg":
+		msg, ok = extractCodexUserEvent(line)
+	case "response_item":
+		msg, ok = extractCodexAssistantMessage(line)
+	}
+	if !ok || d.cur.Skip {
+		return Record{}, false
+	}
+	return Record{
+		// Codex lines carry no id; rollout files are append-only, so the offset is stable.
+		ID:        fmt.Sprintf("%s:%d", d.cur.SessionID, at),
+		SessionID: d.cur.SessionID,
+		Source:    SourceCodex,
+		Role:      msg.Role,
+		Text:      msg.Content,
+		Timestamp: msg.Timestamp,
+		Cwd:       d.cur.Cwd,
+	}, true
+}
+
+func (c *Codex) Files() ([]string, error) {
+	var files []string
+	err := filepath.WalkDir(c.baseDir, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !e.IsDir() && strings.HasSuffix(path, ".jsonl") {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return files, err
+}
+
+func (c *Codex) ReadFrom(path string, cur Cursor) ([]Record, Cursor, error) {
+	d := codexDecoder{cur: cur}
+	var out []Record
+	next, err := readLines(path, cur.Offset, func(raw []byte, at int64) {
+		if r, ok := d.decode(raw, at); ok {
+			out = append(out, r)
+		}
+	})
+	d.cur.Offset = next
+	return out, d.cur, err
+}
+
+func parseCodexSessionFile(path string) (*Session, error) {
+	var d codexDecoder
+	var messages []Message
+	_, err := readLines(path, 0, func(raw []byte, at int64) {
+		if r, ok := d.decode(raw, at); ok {
+			messages = append(messages, Message{Role: r.Role, Content: r.Text, Timestamp: r.Timestamp})
 		}
 	})
 	if err != nil {
 		return nil, err
 	}
-
-	if !interactive || len(messages) == 0 {
+	if len(messages) == 0 {
 		return nil, nil
 	}
 	return &Session{
-		ID:        sessionID,
+		ID:        d.cur.SessionID,
 		Tool:      SourceCodex,
-		StartedAt: startedAt,
-		EndedAt:   endedAt,
-		Project:   project,
+		StartedAt: messages[0].Timestamp,
+		EndedAt:   messages[len(messages)-1].Timestamp,
+		Project:   projectFromCwd(d.cur.Cwd),
 		Messages:  messages,
 	}, nil
-}
-
-// Only TUI sessions are user work: SDK and `codex exec` runs are automation, and
-// the Claude Code plugin's runs already show up in the Claude Code transcript.
-func extractCodexSessionMeta(line codexLine, sessionID, project *string, startedAt *time.Time) bool {
-	var meta codexSessionMeta
-	if err := json.Unmarshal(line.Payload, &meta); err != nil {
-		return true
-	}
-	*sessionID = meta.ID
-	*project = projectFromCwd(meta.Cwd)
-	if startedAt.IsZero() {
-		*startedAt = line.Timestamp
-	}
-	return meta.Originator == "" || meta.Originator == "codex-tui"
 }
 
 func extractCodexUserEvent(line codexLine) (Message, bool) {
