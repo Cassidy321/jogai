@@ -65,20 +65,18 @@ func TestDecodeClaudeLine(t *testing.T) {
 	}
 }
 
-func TestParseSessionFile_SkipsNonInteractiveLines(t *testing.T) {
+func TestClaudeReadFrom_SkipsNonInteractiveLines(t *testing.T) {
+	cc := &ClaudeCode{baseDir: t.TempDir()}
+	path := filepath.Join(cc.baseDir, "s1.jsonl")
 	content := strings.Join([]string{
-		`{"type":"user","entrypoint":"sdk-ts","sessionId":"s1","cwd":"/tmp/app","timestamp":"2026-04-05T10:00:00Z","message":{"role":"user","content":"automated prompt"}}`,
-		`{"type":"assistant","entrypoint":"sdk-ts","sessionId":"s1","cwd":"/tmp/app","timestamp":"2026-04-05T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"automated answer"}]}}`,
-	}, "\n")
-	path := filepath.Join(t.TempDir(), "s1.jsonl")
+		`{"type":"user","uuid":"a","entrypoint":"sdk-ts","sessionId":"s1","cwd":"/tmp/app","timestamp":"2026-04-05T10:00:00Z","message":{"role":"user","content":"automated prompt"}}`,
+		`{"type":"assistant","uuid":"b","entrypoint":"sdk-ts","sessionId":"s1","cwd":"/tmp/app","timestamp":"2026-04-05T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"automated answer"}]}}`,
+	}, "\n") + "\n"
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	s, err := parseSessionFile(path)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if s != nil {
-		t.Errorf("expected an SDK-only session to be skipped, got %+v", s)
+	records, _, err := cc.ReadFrom(path, Cursor{})
+	if err != nil || len(records) != 0 {
+		t.Errorf("ReadFrom = (%+v, %v), want SDK lines skipped", records, err)
 	}
 }

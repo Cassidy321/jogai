@@ -9,7 +9,7 @@ func TestRefresh_IngestsAndIndexes(t *testing.T) {
 	f := newFixture(t)
 	s, _ := openTemp(t)
 	f.appendClaude(t, "s1.jsonl", line("u1", "user", "caffeinate garde le Mac éveillé"))
-	res, err := s.Refresh(f.sources, f.res, "")
+	res, err := s.Refresh(f.sources, f.res, "", 0)
 	if err != nil || res.Busy || res.Ingested.Messages != 1 || res.Indexed != 1 {
 		t.Fatalf("Refresh = (%+v, %v)", res, err)
 	}

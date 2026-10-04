@@ -179,6 +179,10 @@ func parseWindowRange(raw string) (time.Time, time.Time, bool) {
 	return start, end, true
 }
 
+func (m *Markdown) Path(s *summary.Summary) string {
+	return filepath.Join(m.dir, filenameFor(s))
+}
+
 func filenameFor(s *summary.Summary) string {
 	return s.Date.Format(devday.LabelFormat) + ".md"
 }

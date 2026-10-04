@@ -30,42 +30,6 @@ func (c *Codex) Detect() bool {
 	return err == nil && info.IsDir()
 }
 
-func (c *Codex) Sessions(since time.Time) ([]Session, error) {
-	start := since.Truncate(24 * time.Hour)
-	now := time.Now().UTC()
-	var sessions []Session
-	for d := start; !d.After(now.Add(24 * time.Hour)); d = d.Add(24 * time.Hour) {
-		dir := filepath.Join(c.baseDir, d.Format("2006"), d.Format("01"), d.Format("02"))
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue
-			}
-			return nil, fmt.Errorf("read codex day dir %s: %w", dir, err)
-		}
-		for _, f := range entries {
-			if !strings.HasSuffix(f.Name(), ".jsonl") {
-				continue
-			}
-			info, err := f.Info()
-			if err != nil || info.ModTime().Before(since) {
-				continue
-			}
-			session, err := parseCodexSessionFile(filepath.Join(dir, f.Name()))
-			if err != nil || session == nil {
-				continue
-			}
-			filtered := filterMessages(session.Messages, since)
-			if len(filtered) == 0 {
-				continue
-			}
-			session.Messages = filtered
-			sessions = append(sessions, *session)
-		}
-	}
-	return sessions, nil
-}
-
 type codexLine struct {
 	Timestamp time.Time       `json:"timestamp"`
 	Type      string          `json:"type"`
@@ -166,30 +130,6 @@ func (c *Codex) ReadFrom(path string, cur Cursor) ([]Record, Cursor, error) {
 	})
 	d.cur.Offset = next
 	return out, d.cur, err
-}
-
-func parseCodexSessionFile(path string) (*Session, error) {
-	var d codexDecoder
-	var messages []Message
-	_, err := readLines(path, 0, func(raw []byte, at int64) {
-		if r, ok := d.decode(raw, at); ok {
-			messages = append(messages, Message{Role: r.Role, Content: r.Text, Timestamp: r.Timestamp})
-		}
-	})
-	if err != nil {
-		return nil, err
-	}
-	if len(messages) == 0 {
-		return nil, nil
-	}
-	return &Session{
-		ID:        d.cur.SessionID,
-		Tool:      SourceCodex,
-		StartedAt: messages[0].Timestamp,
-		EndedAt:   messages[len(messages)-1].Timestamp,
-		Project:   projectFromCwd(d.cur.Cwd),
-		Messages:  messages,
-	}, nil
 }
 
 func extractCodexUserEvent(line codexLine) (Message, bool) {

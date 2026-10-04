@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/Cassidy321/jogai/internal/parser"
 )
 
 type Claude struct{}
@@ -33,11 +31,11 @@ var claudeArgs = []string{
 	"--setting-sources", "",
 }
 
-func (c Claude) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
-	if len(sessions) == 0 {
+func (c Claude) Generate(ctx context.Context, req Request) (*Summary, error) {
+	if len(req.Sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
-	prompt, err := buildPrompt(day, sessions)
+	prompt, err := buildPrompt(req)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}

@@ -164,40 +164,18 @@ func TestSelectSummarizer_Codex(t *testing.T) {
 }
 
 func TestRun_MultiSourcePartialFailureWritesWarningHeader(t *testing.T) {
-	// Stub Claude binary so CheckCLI passes and Generate returns a canned JSON response.
-	bindir := t.TempDir()
-	stub := `#!/bin/sh
-/bin/cat <<'EOF'
-{"result":"stub content","is_error":false,"total_cost_usd":0,"usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}
-EOF
-`
-	if err := os.WriteFile(filepath.Join(bindir, "claude"), []byte(stub), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bindir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	// Prepare HOME with jogai config, a claude session folder, and an unreadable codex day folder.
+	installClaudeStub(t)
+	t.Setenv("XPC_SERVICE_NAME", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, time.Date(2026, 4, 21, 10, 0, 0, 0, time.Local))
 
-	// Minimal Claude Code session.
-	ccDir := filepath.Join(home, ".claude", "projects", "-tmp-test")
-	if err := os.MkdirAll(ccDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	line := `{"type":"user","sessionId":"s1","cwd":"/tmp/test","timestamp":"2026-04-21T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n" +
-		`{"type":"assistant","sessionId":"s1","cwd":"/tmp/test","timestamp":"2026-04-21T10:00:05Z","message":{"role":"assistant","content":[{"type":"text","text":"hello"}]}}`
-	if err := os.WriteFile(filepath.Join(ccDir, "s1.jsonl"), []byte(line), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Codex day dir: drop a stub file inside before chmod 0o000 so ReadDir surfaces a permission error.
+	// Codex day dir: a file inside, then chmod 0o000, so reading it fails.
 	cxDay := filepath.Join(home, ".codex", "sessions", "2026", "04", "21")
 	if err := os.MkdirAll(cxDay, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	stubFile := filepath.Join(cxDay, "rollout-stub.jsonl")
-	if err := os.WriteFile(stubFile, []byte("{}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cxDay, "rollout-stub.jsonl"), []byte("{}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(cxDay, 0o000); err != nil {
@@ -215,21 +193,19 @@ EOF
 		t.Fatal(err)
 	}
 
-	cmd := &RunCmd{Day: "2026-04-21"}
-	if err := cmd.Run(); err != nil {
+	if err := (&RunCmd{Day: "2026-04-21"}).Run(); err != nil {
 		t.Fatalf("Run returned error: %v", err)
 	}
-
 	data, err := os.ReadFile(filepath.Join(outDir, "2026-04-21.md"))
 	if err != nil {
 		t.Fatalf("expected recap file: %v", err)
 	}
 	body := string(data)
-	if !strings.Contains(body, "> ⚠ codex:") {
-		t.Errorf("expected codex warning blockquote in markdown:\n%s", body)
+	if !strings.Contains(body, "> ⚠ some sessions could not be read") {
+		t.Errorf("expected the read failure in a warning blockquote:\n%s", body)
 	}
-	if !strings.Contains(body, "stub content") {
-		t.Errorf("expected recap body from stub:\n%s", body)
+	if !strings.Contains(body, "## Hors projet") || !strings.Contains(body, "stub content") {
+		t.Errorf("expected the recap body:\n%s", body)
 	}
 }
 
@@ -324,10 +300,21 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	recap, err := os.ReadFile(filepath.Join(outDir, noonDaysAgo(1).Format(devday.LabelFormat)+".md"))
+	if err != nil || !strings.Contains(string(recap), "## Hors projet") {
+		t.Errorf("recap = (%q, %v), want a Hors projet section for sessions started in a temp dir", recap, err)
+	}
 	if n := strings.Count(string(data), "call"); n != 2 {
 		t.Errorf("summarizer called %d times over two runs, want 2", n)
 	}
 
+	if n := archivedMessages(t); n != 4 {
+		t.Errorf("archive holds %d messages, want the 4 session lines", n)
+	}
+}
+
+func archivedMessages(t *testing.T) int {
+	t.Helper()
 	path, err := archive.DefaultPath()
 	if err != nil {
 		t.Fatal(err)
@@ -337,7 +324,53 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = store.Close() }()
-	if st, err := store.Stats(); err != nil || st.Messages != 4 {
-		t.Errorf("archive stats = (%+v, %v), want the 4 session lines", st, err)
+	st, err := store.Stats()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st.Messages
+}
+
+func TestRun_KeepsARecapEditedByHand(t *testing.T) {
+	installClaudeStub(t)
+	t.Setenv("XPC_SERVICE_NAME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, noonDaysAgo(1))
+	outDir := writeRunConfig(t, home)
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("first run: %v", err)
+	}
+
+	label := noonDaysAgo(1).Format(devday.LabelFormat)
+	path := filepath.Join(outDir, label+".md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := string(data) + "\nmy own note\n"
+	if err := os.WriteFile(path, []byte(edited), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := days[label]
+	d.Status = lastrun.StatusError
+	days[label] = d
+	if err := lastrun.SaveDays(days); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("catch-up run: %v", err)
+	}
+	if kept, _ := os.ReadFile(path); string(kept) != edited {
+		t.Errorf("the edited recap was replaced:\n%s", kept)
+	}
+	days, _ = lastrun.LoadDays()
+	if days[label].Status != lastrun.StatusOK {
+		t.Errorf("status = %s, want ok (the edited recap is kept)", days[label].Status)
 	}
 }

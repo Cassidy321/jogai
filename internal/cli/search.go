@@ -25,7 +25,7 @@ func (c *SearchCmd) Run() error {
 		return err
 	}
 	defer func() { _ = env.store.Close() }()
-	if _, err := env.refresh(); err != nil {
+	if _, err := env.refresh(0); err != nil {
 		logErrf("⚠ archive: %v", err)
 	}
 	q := archive.Query{Text: strings.Join(c.Query, " "), Project: c.Project, Limit: c.Limit}

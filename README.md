@@ -39,6 +39,26 @@ jogai summarizes a **dev day** — a 24-hour window anchored on an hour you choo
 
 Every recap targets a specific dev day. The file name is the **date the window starts**, so `2026-04-17.md` = "what you did on April 17" regardless of your boundary.
 
+A recap has one section per project — the git repository (or folder) the session ran in — busiest first, and a last `## Hors projet` section for one-off questions asked outside any project:
+
+```markdown
+# 2026-04-17
+
+## dokaa
+
+- Embedded ticket form: iframe + optional embed.js …
+
+## jogai
+
+- …
+
+## Hors projet
+
+- …
+```
+
+If one project fails to summarize, the others are still written and the day is retried on the next run. A recap you edited by hand is never replaced by a catch-up; `jogai run --day 2026-04-17 --force` replaces it on purpose.
+
 ## Usage
 
 ### Generate a recap
@@ -118,10 +138,10 @@ jogai status
 
 ## How It Works
 
-1. **Parse** — reads session history from the sources you picked at `jogai init` (Claude Code from `~/.claude/projects/`, Codex from `~/.codex/sessions/`)
-2. **Filter** — keeps what you typed and what the assistant answered; drops injected context, command output and automated sessions (SDK, `claude -p`, `codex exec`); collapses code blocks and fits the day into a bounded prompt
-3. **Summarize** — sends filtered sessions to your chosen summarizer (Claude or Codex) for a concise recap
-4. **Write** — saves the recap as `YYYY-MM-DD.md` in your output directory
+1. **Archive** — copies what is new in the sessions you picked at `jogai init` (Claude Code from `~/.claude/projects/`, Codex from `~/.codex/sessions/`) into the private archive, leaving out automated sessions and masking credentials
+2. **Filter** — keeps what you typed and what the assistant answered; drops injected context and command output; collapses code blocks and fits each project into a bounded prompt
+3. **Summarize** — one call per project to your chosen summarizer (Claude or Codex)
+4. **Write** — assembles the sections into `YYYY-MM-DD.md` in your output directory
 
 ## License
 

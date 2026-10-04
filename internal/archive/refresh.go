@@ -26,9 +26,10 @@ type RefreshResult struct {
 }
 
 // Every Claude session starts its own `jogai mcp`: only one refreshes at a
-// time, the others search what is already archived.
-func (s *Store) Refresh(sources []parser.Source, resolver *project.Resolver, recapDir string) (RefreshResult, error) {
-	release, err := lock.Try(filepath.Join(filepath.Dir(s.path), "refresh.lock"))
+// time. Searches pass wait 0 and use what is already archived; a recap run
+// waits, since recapping from a half-imported archive writes partial recaps.
+func (s *Store) Refresh(sources []parser.Source, resolver *project.Resolver, recapDir string, wait time.Duration) (RefreshResult, error) {
+	release, err := lock.TryFor(filepath.Join(filepath.Dir(s.path), "refresh.lock"), wait)
 	if errors.Is(err, lock.ErrBusy) {
 		return RefreshResult{Busy: true}, nil
 	}

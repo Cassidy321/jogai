@@ -90,3 +90,27 @@ func TestIndexRecaps_FollowsTheVault(t *testing.T) {
 		t.Errorf("recap docs = %d, want only the remaining file's section", c)
 	}
 }
+
+func TestIndexRecaps_AttachesSectionsToTheirProject(t *testing.T) {
+	f := newFixture(t)
+	s, _ := openTemp(t)
+	f.appendClaude(t, "s1.jsonl", line("u1", "user", "hi"))
+	if _, err := s.Ingest(f.sources, f.res); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	writeRecap(t, dir, "2026-10-01", "# 2026-10-01\n\n## jogai\n\nflock everywhere\n\n## Hors projet\n\nune question\n", time.Now())
+	if _, err := s.indexRecaps(dir); err != nil {
+		t.Fatal(err)
+	}
+	var project string
+	if err := s.db.QueryRow(`SELECT project FROM docs WHERE kind = 'recap' AND title LIKE '%jogai'`).Scan(&project); err != nil || project != "/w/jogai" {
+		t.Errorf("jogai section project = (%q, %v)", project, err)
+	}
+	if hits, err := s.Search(Query{Text: "flock", Project: "jogai"}); err != nil || len(hits) != 1 {
+		t.Errorf("project-filtered search = (%+v, %v)", hits, err)
+	}
+	if c := count(t, s, `SELECT count(*) FROM docs WHERE kind = 'recap' AND project = '' AND title LIKE '%Hors projet'`); c != 1 {
+		t.Errorf("the Hors projet section must stay without project")
+	}
+}

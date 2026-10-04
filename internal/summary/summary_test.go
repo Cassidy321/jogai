@@ -28,7 +28,7 @@ func TestBuildPrompt(t *testing.T) {
 		},
 	}
 
-	prompt, err := buildPrompt(day, sessions)
+	prompt, err := buildPrompt(Request{Day: day, Project: "jogai", Sessions: sessions})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -39,8 +39,11 @@ func TestBuildPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "daily recap") {
 		t.Error("prompt should mention daily recap")
 	}
-	if !strings.Contains(prompt, "Do not include a document title/heading") {
-		t.Error("prompt should forbid a generated title")
+	if !strings.Contains(prompt, "Do not include any heading") {
+		t.Error("prompt should forbid headings, jogai writes them")
+	}
+	if !strings.Contains(prompt, `about the project "jogai"`) {
+		t.Error("prompt should name the project")
 	}
 	if !strings.Contains(prompt, day.Format("Monday 2 January 2006")) {
 		t.Error("prompt should name the dev day")
@@ -75,7 +78,7 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 		},
 	}
 
-	prompt, err := buildPrompt(day, sessions)
+	prompt, err := buildPrompt(Request{Day: day, Project: "jogai", Sessions: sessions})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -98,7 +101,7 @@ func TestBuildPromptMultipleSessions(t *testing.T) {
 }
 
 func TestClaudeGenerateNoSessions(t *testing.T) {
-	_, err := Claude{}.Generate(context.Background(), time.Time{}, nil)
+	_, err := Claude{}.Generate(context.Background(), Request{Sessions: nil})
 	if err == nil {
 		t.Error("expected error for empty sessions")
 	}
@@ -111,7 +114,7 @@ func TestClaudeGenerate_MissingCLIReportsPath(t *testing.T) {
 		ID: "s1", Tool: "claude-code", Project: "jogai",
 		Messages: []parser.Message{{Role: "user", Content: "hi"}},
 	}}
-	_, err := Claude{}.Generate(context.Background(), time.Time{}, sessions)
+	_, err := Claude{}.Generate(context.Background(), Request{Sessions: sessions})
 	if err == nil {
 		t.Fatal("expected error for missing claude CLI")
 	}
@@ -151,7 +154,7 @@ printf '%s\n' "$@" > "$ARGS_FILE"
 /bin/cat > /dev/null
 echo '{"result":"recap body","is_error":false}'
 `)
-	s, err := Claude{}.Generate(context.Background(), time.Now(), oneSession)
+	s, err := Claude{}.Generate(context.Background(), Request{Sessions: oneSession})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -174,7 +177,7 @@ func TestClaudeGenerate_ClassifiesErrorResults(t *testing.T) {
 echo '{"result":"API Error: Stream idle timeout - partial response received","is_error":true}'
 exit 1
 `)
-	_, err := Claude{}.Generate(context.Background(), time.Now(), oneSession)
+	_, err := Claude{}.Generate(context.Background(), Request{Sessions: oneSession})
 	if KindOf(err) != KindTransient {
 		t.Errorf("KindOf(%v) = %v, want transient", err, KindOf(err))
 	}
@@ -184,7 +187,7 @@ func TestClaudeGenerate_TimeoutIsTransient(t *testing.T) {
 	stubCLI(t, "claude", "#!/bin/sh\nexec /bin/sleep 5\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
-	_, err := Claude{}.Generate(ctx, time.Now(), oneSession)
+	_, err := Claude{}.Generate(ctx, Request{Sessions: oneSession})
 	if KindOf(err) != KindTransient {
 		t.Errorf("KindOf(%v) = %v, want transient", err, KindOf(err))
 	}
@@ -204,5 +207,15 @@ func TestLookPath_FallsBackToKnownDirs(t *testing.T) {
 	got, err := LookPath("claude")
 	if err != nil || got != bin {
 		t.Fatalf("LookPath = (%q, %v), want %q", got, err, bin)
+	}
+}
+
+func TestBuildPrompt_OutsideProjects(t *testing.T) {
+	prompt, err := buildPrompt(Request{Day: time.Now(), Sessions: oneSession})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(prompt, "one short bullet per topic") || strings.Contains(prompt, "about the project") {
+		t.Errorf("work outside projects needs its own instruction:\n%s", prompt)
 	}
 }
