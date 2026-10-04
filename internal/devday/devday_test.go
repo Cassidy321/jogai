@@ -83,11 +83,11 @@ func TestPrevious(t *testing.T) {
 	dayEnd := config.TimeOfDay{Hour: 5, Minute: 0}
 
 	tests := []struct {
-		name       string
-		ref        time.Time
-		wantStart  time.Time
-		wantEnd    time.Time
-		wantLabel  string
+		name      string
+		ref       time.Time
+		wantStart time.Time
+		wantEnd   time.Time
+		wantLabel string
 	}{
 		{
 			name:      "afternoon same day",
@@ -193,5 +193,47 @@ func TestPrevious_ThenWindow_ConsistentWithFromDate(t *testing.T) {
 	if !pStart.Equal(fStart) || !pEnd.Equal(fEnd) || pLabel != fLabel {
 		t.Errorf("Previous and FromDate disagree: Previous=(%v,%v,%q), FromDate=(%v,%v,%q)",
 			pStart, pEnd, pLabel, fStart, fEnd, fLabel)
+	}
+}
+
+func TestRecent_ReturnsCompletedDaysOldestFirst(t *testing.T) {
+	ref := time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC)
+	got := Recent(ref, config.TimeOfDay{Hour: 5}, 3)
+
+	want := []string{"2026-04-15", "2026-04-16", "2026-04-17"}
+	if len(got) != len(want) {
+		t.Fatalf("got %d spans, want %d", len(got), len(want))
+	}
+	for i, s := range got {
+		if s.Label != want[i] {
+			t.Errorf("span %d label = %s, want %s", i, s.Label, want[i])
+		}
+		if !s.End.Equal(s.Start.AddDate(0, 0, 1)) {
+			t.Errorf("span %d is not one dev day long: %v → %v", i, s.Start, s.End)
+		}
+	}
+	if !got[2].End.Equal(time.Date(2026, 4, 18, 5, 0, 0, 0, time.UTC)) {
+		t.Errorf("most recent span should end where the current dev day starts, got %v", got[2].End)
+	}
+}
+
+func TestRecent_LastSpanIsPrevious(t *testing.T) {
+	ref := time.Date(2026, 4, 18, 3, 0, 0, 0, time.UTC) // before day_end: dev day 04-17 is still open
+	dayEnd := config.TimeOfDay{Hour: 5}
+	start, end, label := Previous(ref, dayEnd)
+	got := Recent(ref, dayEnd, 1)[0]
+	if got.Label != label || !got.Start.Equal(start) || !got.End.Equal(end) {
+		t.Errorf("Recent(1) = %+v, want Previous = %s [%v, %v)", got, label, start, end)
+	}
+}
+
+func TestRecent_DSTKeepsClockBoundaries(t *testing.T) {
+	paris := mustLoadParis(t)
+	// 2026-03-29 is the spring-forward day in Paris.
+	ref := time.Date(2026, 3, 31, 12, 0, 0, 0, paris)
+	for _, s := range Recent(ref, config.TimeOfDay{Hour: 5}, 4) {
+		if s.Start.Hour() != 5 || s.End.Hour() != 5 {
+			t.Errorf("span %s = [%v, %v), want 05:00 local boundaries", s.Label, s.Start, s.End)
+		}
 	}
 }

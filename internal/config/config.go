@@ -2,12 +2,14 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
+
+	"github.com/Cassidy321/jogai/internal/lock"
 )
 
 type Config struct {
@@ -15,7 +17,10 @@ type Config struct {
 	DayEnd     *TimeOfDay `json:"day_end,omitempty"`
 	Sources    []string   `json:"sources,omitempty"`
 	Summarizer string     `json:"summarizer,omitempty"`
+	AutoUpdate *bool      `json:"auto_update,omitempty"`
 }
+
+func (c *Config) AutoUpdateEnabled() bool { return c.AutoUpdate == nil || *c.AutoUpdate }
 
 // TimeOfDay represents an hour-and-minute value in local time, used for the
 // dev-day boundary.
@@ -117,6 +122,7 @@ func Save(cfg *Config) error {
 
 var (
 	ErrNotConfigured = fmt.Errorf("jogai not configured — run 'jogai init' first")
+	ErrLocked        = errors.New("another jogai run is already in progress")
 )
 
 func AcquireLock() (func(), error) {
@@ -124,52 +130,9 @@ func AcquireLock() (func(), error) {
 	if err != nil {
 		return nil, err
 	}
-
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, fmt.Errorf("create config dir: %w", err)
+	release, err := lock.Try(filepath.Join(dir, "run.lock"))
+	if errors.Is(err, lock.ErrBusy) {
+		return nil, ErrLocked
 	}
-
-	path := filepath.Join(dir, "run.lock")
-
-	if data, err := os.ReadFile(path); err == nil {
-		if pid, err := strconv.Atoi(strings.TrimSpace(string(data))); err == nil {
-			if !isProcessAlive(pid) {
-				_ = os.Remove(path)
-			}
-		} else {
-			_ = os.Remove(path)
-		}
-	}
-
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
-	if err != nil {
-		if os.IsExist(err) {
-			return nil, fmt.Errorf("another jogai run is already in progress (remove %s if stale)", path)
-		}
-		return nil, fmt.Errorf("acquire lock: %w", err)
-	}
-
-	if _, err := fmt.Fprintf(f, "%d", os.Getpid()); err != nil {
-		_ = f.Close()
-		_ = os.Remove(path)
-		return nil, fmt.Errorf("write lock PID: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(path)
-		return nil, fmt.Errorf("close lock: %w", err)
-	}
-
-	release := func() {
-		_ = os.Remove(path)
-	}
-	return release, nil
-}
-
-func isProcessAlive(pid int) bool {
-	p, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	err = p.Signal(syscall.Signal(0))
-	return err == nil
+	return release, err
 }

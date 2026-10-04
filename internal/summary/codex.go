@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/Cassidy321/jogai/internal/parser"
 )
 
 type Codex struct{}
@@ -19,14 +17,15 @@ func (Codex) Name() string { return NameCodex }
 
 func (Codex) CheckCLI() error { return checkCLI(NameCodex) }
 
-func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summary, error) {
-	if len(sessions) == 0 {
+func (c Codex) Generate(ctx context.Context, req Request) (*Summary, error) {
+	if len(req.Sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
-	if err := c.CheckCLI(); err != nil {
+	bin, err := LookPath(NameCodex)
+	if err != nil {
 		return nil, err
 	}
-	prompt, err := buildPrompt(sessions)
+	prompt, err := buildPrompt(req)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
@@ -38,19 +37,18 @@ func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summar
 	defer func() { _ = os.RemoveAll(tmpDir) }()
 	outPath := filepath.Join(tmpDir, "last_message.txt")
 
-	cmd := exec.CommandContext(ctx, NameCodex,
-		"exec",
-		"--skip-git-repo-check",
-		"-s", "read-only",
-		"--output-last-message", outPath,
-		"-",
-	)
+	cmd := exec.CommandContext(ctx, bin, codexArgs(outPath)...)
+	cmd.Dir = tmpDir
 	cmd.Stdin = strings.NewReader(prompt)
+	cmd.WaitDelay = 5 * time.Second
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-
 	if err := cmd.Run(); err != nil {
-		return nil, classifyCodexError(stderr.String(), err)
+		if ctx.Err() != nil {
+			return nil, &Error{Kind: KindTransient, Msg: "codex CLI timed out"}
+		}
+		detail := strings.TrimSpace(stderr.String())
+		return nil, &Error{Kind: classify(detail), Msg: fmt.Sprintf("codex CLI failed (%v): %s", err, detail)}
 	}
 
 	body, err := os.ReadFile(outPath)
@@ -59,25 +57,12 @@ func (c Codex) Generate(ctx context.Context, sessions []parser.Session) (*Summar
 	}
 	content := strings.TrimSpace(string(body))
 	if content == "" {
-		return nil, fmt.Errorf("codex returned an empty recap")
+		return nil, &Error{Kind: KindFatal, Msg: "codex returned an empty recap"}
 	}
-	return &Summary{
-		Date:     time.Now(),
-		Content:  content,
-		Sessions: len(sessions),
-		// Usage left zero — codex exec does not expose cost/tokens in a stable way.
-	}, nil
+	return &Summary{Content: content}, nil
 }
 
-func classifyCodexError(stderr string, err error) error {
-	lower := strings.ToLower(stderr)
-	switch {
-	case strings.Contains(lower, "rate limit"), strings.Contains(lower, "too many requests"):
-		return fmt.Errorf("rate limit reached on Codex — wait a few minutes and try again")
-	case strings.Contains(lower, "unauthorized"), strings.Contains(lower, "auth"):
-		return fmt.Errorf("codex authentication failed — run 'codex login'")
-	case strings.Contains(lower, "quota"), strings.Contains(lower, "credit"):
-		return fmt.Errorf("codex quota or credits exhausted — check your account")
-	}
-	return fmt.Errorf("codex CLI failed — make sure you're logged in and have access\n  detail: %w\n  %s", err, stderr)
+// --ephemeral: a persisted session would be ingested and recapped the next day.
+func codexArgs(outPath string) []string {
+	return []string{"exec", "--ephemeral", "--skip-git-repo-check", "-s", "read-only", "--output-last-message", outPath, "-"}
 }

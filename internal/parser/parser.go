@@ -2,7 +2,9 @@ package parser
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -31,30 +33,30 @@ type Session struct {
 type Parser interface {
 	Name() string
 	Detect() bool
-	Sessions(since time.Time) ([]Session, error)
 }
 
-func scanJSONL(path string, perLine func(line []byte)) error {
+// A session being written ends with a partial line: stop before it so the next
+// read starts from that line instead of skipping it.
+func readLines(path string, offset int64, fn func(line []byte, at int64)) (int64, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return offset, err
 	}
 	defer func() { _ = f.Close() }()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
-	for scanner.Scan() {
-		perLine(scanner.Bytes())
+	if _, err := f.Seek(offset, io.SeekStart); err != nil {
+		return offset, err
 	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan %s: %w", filepath.Base(path), err)
+	r := bufio.NewReaderSize(f, 64*1024)
+	pos := offset
+	for {
+		line, err := r.ReadBytes('\n')
+		if errors.Is(err, io.EOF) {
+			return pos, nil
+		}
+		if err != nil {
+			return pos, fmt.Errorf("read %s: %w", filepath.Base(path), err)
+		}
+		fn(line[:len(line)-1], pos)
+		pos += int64(len(line))
 	}
-	return nil
-}
-
-func projectFromCwd(cwd string) string {
-	if cwd == "" || cwd == "/" {
-		return "unknown"
-	}
-	return filepath.Base(cwd)
 }

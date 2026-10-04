@@ -191,3 +191,25 @@ func TestConfigRoundtrip_LegacyMissing(t *testing.T) {
 		t.Errorf("Summarizer should be empty for legacy config, got %q", got.Summarizer)
 	}
 }
+
+func TestAutoUpdateEnabled(t *testing.T) {
+	off := false
+	for _, tc := range []struct {
+		cfg  Config
+		want bool
+	}{
+		{Config{}, true},
+		{Config{AutoUpdate: &off}, false},
+	} {
+		if got := tc.cfg.AutoUpdateEnabled(); got != tc.want {
+			t.Errorf("AutoUpdateEnabled(%+v) = %v, want %v", tc.cfg, got, tc.want)
+		}
+	}
+	var cfg Config
+	if err := json.Unmarshal([]byte(`{"output_dir":"/x","auto_update":false}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AutoUpdateEnabled() {
+		t.Error(`"auto_update": false must disable updates`)
+	}
+}

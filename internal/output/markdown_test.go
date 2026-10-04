@@ -19,7 +19,6 @@ func TestMarkdownWrite(t *testing.T) {
 		WindowStart: time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		Content:     "# jogai\n\nWorked on the CLI parser.",
-		Sessions:    3,
 	}
 
 	if err := md.Write(s); err != nil {
@@ -56,7 +55,6 @@ func TestMarkdownWriteCreatesDir(t *testing.T) {
 		WindowStart: time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		Content:     "Summary.",
-		Sessions:    5,
 	}
 
 	if err := md.Write(s); err != nil {
@@ -78,7 +76,6 @@ func TestMarkdownAtomicWrite(t *testing.T) {
 		WindowStart: time.Date(2026, 4, 6, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 4, 7, 0, 0, 0, 0, time.UTC),
 		Content:     "first version",
-		Sessions:    1,
 	}
 	if err := md.Write(s); err != nil {
 		t.Fatal(err)
@@ -117,7 +114,6 @@ func TestMarkdownFilenameAlwaysDateOnly(t *testing.T) {
 		WindowStart: time.Date(2026, 12, 25, 0, 0, 0, 0, time.UTC),
 		WindowEnd:   time.Date(2026, 12, 26, 0, 0, 0, 0, time.UTC),
 		Content:     "calendar day",
-		Sessions:    1,
 	}
 	if err := md.Write(first); err != nil {
 		t.Fatalf("first write: %v", err)
