@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/Cassidy321/jogai/internal/parser"
 )
 
 type Codex struct{}
@@ -19,15 +17,15 @@ func (Codex) Name() string { return NameCodex }
 
 func (Codex) CheckCLI() error { return checkCLI(NameCodex) }
 
-func (c Codex) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
-	if len(sessions) == 0 {
+func (c Codex) Generate(ctx context.Context, req Request) (*Summary, error) {
+	if len(req.Sessions) == 0 {
 		return nil, fmt.Errorf("no sessions to summarize")
 	}
 	bin, err := LookPath(NameCodex)
 	if err != nil {
 		return nil, err
 	}
-	prompt, err := buildPrompt(day, sessions)
+	prompt, err := buildPrompt(req)
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}

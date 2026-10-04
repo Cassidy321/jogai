@@ -39,8 +39,8 @@ type fakeSummarizer struct {
 
 func (f fakeSummarizer) Name() string    { return "fake" }
 func (f fakeSummarizer) CheckCLI() error { return nil }
-func (f fakeSummarizer) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*summary.Summary, error) {
-	return f.fn(ctx, day, sessions)
+func (f fakeSummarizer) Generate(ctx context.Context, req summary.Request) (*summary.Summary, error) {
+	return f.fn(ctx, req.Day, req.Sessions)
 }
 
 func at(day, hour int) time.Time { return time.Date(2026, 4, day, hour, 0, 0, 0, time.UTC) }

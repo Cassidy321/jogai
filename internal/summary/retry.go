@@ -3,8 +3,6 @@ package summary
 import (
 	"context"
 	"time"
-
-	"github.com/Cassidy321/jogai/internal/parser"
 )
 
 // Each attempt gets its own timeout so one hung call (laptop asleep
@@ -25,9 +23,9 @@ func NewRetry(s Summarizer) Retry {
 	}
 }
 
-func (r Retry) Generate(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
+func (r Retry) Generate(ctx context.Context, req Request) (*Summary, error) {
 	for attempt := 0; ; attempt++ {
-		s, err := r.attempt(ctx, day, sessions)
+		s, err := r.attempt(ctx, req)
 		if err == nil || KindOf(err) != KindTransient || attempt == len(r.Backoff) {
 			return s, err
 		}
@@ -37,10 +35,10 @@ func (r Retry) Generate(ctx context.Context, day time.Time, sessions []parser.Se
 	}
 }
 
-func (r Retry) attempt(ctx context.Context, day time.Time, sessions []parser.Session) (*Summary, error) {
+func (r Retry) attempt(ctx context.Context, req Request) (*Summary, error) {
 	ctx, cancel := context.WithTimeout(ctx, r.CallTimeout)
 	defer cancel()
-	return r.Summarizer.Generate(ctx, day, sessions)
+	return r.Summarizer.Generate(ctx, req)
 }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {

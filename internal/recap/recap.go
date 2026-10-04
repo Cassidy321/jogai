@@ -53,7 +53,7 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span, all []parser.Se
 	if len(sessions) == 0 {
 		return nil, nil
 	}
-	s, err := p.Summarizer.Generate(ctx, span.Start, filter.Reduce(sessions))
+	s, err := p.Summarizer.Generate(ctx, summary.Request{Day: span.Start, Sessions: filter.Reduce(sessions)})
 	if err != nil {
 		return nil, fmt.Errorf("generate summary: %w", err)
 	}

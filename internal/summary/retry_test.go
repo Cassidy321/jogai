@@ -5,8 +5,6 @@ import (
 	"slices"
 	"testing"
 	"time"
-
-	"github.com/Cassidy321/jogai/internal/parser"
 )
 
 type scripted struct {
@@ -17,7 +15,7 @@ type scripted struct {
 
 func (s *scripted) Name() string    { return "scripted" }
 func (s *scripted) CheckCLI() error { return nil }
-func (s *scripted) Generate(ctx context.Context, _ time.Time, _ []parser.Session) (*Summary, error) {
+func (s *scripted) Generate(ctx context.Context, _ Request) (*Summary, error) {
 	_, hasDeadline := ctx.Deadline()
 	s.deadlines = append(s.deadlines, hasDeadline)
 	i := s.calls
@@ -45,7 +43,7 @@ func TestRetry_RetriesTransientFailures(t *testing.T) {
 	s := &scripted{errs: []error{transient, transient}}
 	var slept []time.Duration
 
-	got, err := testRetry(s, &slept).Generate(context.Background(), time.Now(), nil)
+	got, err := testRetry(s, &slept).Generate(context.Background(), Request{})
 	if err != nil || got.Content != "ok" {
 		t.Fatalf("Generate = (%v, %v), want ok", got, err)
 	}
@@ -65,7 +63,7 @@ func TestRetry_GivesUpAfterTheLastAttempt(t *testing.T) {
 	s := &scripted{errs: []error{transient, transient, transient}}
 	var slept []time.Duration
 
-	_, err := testRetry(s, &slept).Generate(context.Background(), time.Now(), nil)
+	_, err := testRetry(s, &slept).Generate(context.Background(), Request{})
 	if KindOf(err) != KindTransient || s.calls != 3 {
 		t.Errorf("err = %v, calls = %d; want the transient error after 3 calls", err, s.calls)
 	}
@@ -75,7 +73,7 @@ func TestRetry_DoesNotRetryOtherKinds(t *testing.T) {
 	for _, kind := range []Kind{KindRefused, KindAuth, KindFatal} {
 		s := &scripted{errs: []error{&Error{Kind: kind, Msg: "no"}}}
 		var slept []time.Duration
-		_, err := testRetry(s, &slept).Generate(context.Background(), time.Now(), nil)
+		_, err := testRetry(s, &slept).Generate(context.Background(), Request{})
 		if err == nil || s.calls != 1 || len(slept) != 0 {
 			t.Errorf("kind %v: err = %v, calls = %d, slept = %v", kind, err, s.calls, slept)
 		}
