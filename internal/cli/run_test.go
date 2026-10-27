@@ -313,6 +313,45 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	}
 }
 
+func TestRun_WritesIntoARecapFolderItCannotList(t *testing.T) {
+	installClaudeStub(t)
+	t.Setenv("XPC_SERVICE_NAME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, noonDaysAgo(1))
+	outDir := writeRunConfig(t, home)
+	// What macOS allows the scheduled run in ~/Documents: write files, not list the folder.
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(outDir, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(outDir, 0o755) })
+
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+	label := noonDaysAgo(1).Format(devday.LabelFormat)
+	recap, err := os.ReadFile(filepath.Join(outDir, label+".md"))
+	if err != nil {
+		t.Fatalf("expected a recap: %v", err)
+	}
+	if strings.Contains(string(recap), "⚠") {
+		t.Errorf("recap carries a warning:\n%s", recap)
+	}
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := days[label].Status; got != lastrun.StatusOK {
+		t.Errorf("status = %s, want ok", got)
+	}
+	if n := archivedMessages(t); n != 2 {
+		t.Errorf("archive holds %d messages, want the 2 session lines", n)
+	}
+}
+
 func archivedMessages(t *testing.T) int {
 	t.Helper()
 	path, err := archive.DefaultPath()
