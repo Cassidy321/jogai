@@ -46,10 +46,13 @@ func (e *archiveEnv) refresh(wait time.Duration) (archive.RefreshResult, error) 
 	return e.store.Refresh(e.sources, e.resolver, e.recapDir, wait)
 }
 
+// Recaps are left to the searches, which index them before searching. macOS
+// does not let the scheduled run list a recap folder under ~/Documents, and
+// trying would mark every recap partial.
 func refreshArchive(env *archiveEnv) []string {
-	res, err := env.refresh(5 * time.Minute)
-	if res.Ingested.Messages > 0 || res.Recaps > 0 {
-		logf("Archived %d new message(s), indexed %d recap file(s)", res.Ingested.Messages, res.Recaps)
+	res, err := env.store.Refresh(env.sources, env.resolver, "", 5*time.Minute)
+	if res.Ingested.Messages > 0 {
+		logf("Archived %d new message(s)", res.Ingested.Messages)
 	}
 	if err == nil {
 		return nil
