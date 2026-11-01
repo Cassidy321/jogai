@@ -80,3 +80,10 @@ func TestClaudeReadFrom_SkipsNonInteractiveLines(t *testing.T) {
 		t.Errorf("ReadFrom = (%+v, %v), want SDK lines skipped", records, err)
 	}
 }
+
+func TestDecodeClaudeLine_KeepsDesktopAppSessions(t *testing.T) {
+	r, ok := decodeClaudeLine([]byte(`{"type":"user","entrypoint":"claude-desktop","message":{"role":"user","content":"depuis l'app"}}`))
+	if !ok || r.Text != "depuis l'app" {
+		t.Errorf("record = (%+v, %v), want it archived", r, ok)
+	}
+}

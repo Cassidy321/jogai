@@ -77,6 +77,14 @@ var migrations = [][]string{
 		END`,
 		`CREATE TABLE recap_files (path TEXT PRIMARY KEY, mtime INTEGER NOT NULL)`,
 	},
+	{
+		// The cursors had moved past desktop app sessions without storing them, so
+		// these transcripts are read again. The rename is what makes it stick: a
+		// `jogai mcp` still running the old binary now fails to read its cursors,
+		// instead of moving them past the same lines once more.
+		`ALTER TABLE cursors RENAME TO file_cursors`,
+		`DELETE FROM file_cursors WHERE path LIKE '%/.claude/projects/%'`,
+	},
 }
 
 type Store struct {

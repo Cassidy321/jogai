@@ -64,3 +64,15 @@ func TestResolve(t *testing.T) {
 		}
 	}
 }
+
+func TestNewResolver_DesktopScratchWorkspaceIsOutsideAnyProject(t *testing.T) {
+	t.Setenv("HOME", "/Users/someone")
+	r, err := NewResolver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd := "/Users/someone/Library/Application Support/Claude/scratch-workspaces/a/scratch-2026-10-28-ec2900"
+	if got := r.Resolve(cwd); got != (Project{}) {
+		t.Errorf("Resolve = %+v, want no project", got)
+	}
+}

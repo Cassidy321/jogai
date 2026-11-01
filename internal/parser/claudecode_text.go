@@ -27,8 +27,10 @@ func decodeClaudeLine(raw []byte) (Record, bool) {
 	if line.Type != "user" && line.Type != "assistant" {
 		return Record{}, false
 	}
-	// SDK and `claude -p` runs come from other tools (SocaDB, scripts), not from dev work.
-	if line.Entrypoint != "" && line.Entrypoint != "cli" {
+	// SDK and `claude -p` runs come from other tools (SocaDB, scripts), not from dev
+	// work. Every other entrypoint is kept: Claude Code adds surfaces without notice,
+	// and a session skipped here is lost for good once it prunes the transcript.
+	if strings.HasPrefix(line.Entrypoint, "sdk-") {
 		return Record{}, false
 	}
 	r := Record{
