@@ -89,7 +89,7 @@ func (in *ingestion) file(src parser.Source, path string, cur parser.Cursor) err
 			return err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO cursors(path, pos, session_id, cwd, skip) VALUES(?, ?, ?, ?, ?)
+	if _, err := tx.Exec(`INSERT INTO file_cursors(path, pos, session_id, cwd, skip) VALUES(?, ?, ?, ?, ?)
 		ON CONFLICT(path) DO UPDATE SET pos = excluded.pos, session_id = excluded.session_id, cwd = excluded.cwd, skip = excluded.skip`,
 		path, next.Offset, next.SessionID, next.Cwd, flag(next.Skip)); err != nil {
 		return err
@@ -151,7 +151,7 @@ func (in *ingestion) project(tx *sql.Tx, cwd string) (project.Project, error) {
 }
 
 func (s *Store) cursors() (map[string]parser.Cursor, error) {
-	rows, err := s.db.Query(`SELECT path, pos, session_id, cwd, skip FROM cursors`)
+	rows, err := s.db.Query(`SELECT path, pos, session_id, cwd, skip FROM file_cursors`)
 	if err != nil {
 		return nil, fmt.Errorf("read cursors: %w", err)
 	}

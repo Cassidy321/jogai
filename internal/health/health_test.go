@@ -47,3 +47,15 @@ func TestWarnings_HealthyIsSilent(t *testing.T) {
 		t.Errorf("Warnings = %v, want none", got)
 	}
 }
+
+func TestSystem_LeavesOutTheDevDays(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 10, 4, 9, 0, 0, 0, time.Local)
+	if err := lastrun.SaveDays(map[string]lastrun.Day{"2026-10-02": {Status: lastrun.StatusError, Error: "boom"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(System(Inputs{Now: now, LastIngest: now.Add(-time.Hour), FormatWarning: "format changed"}), "\n")
+	if got != "format changed" {
+		t.Errorf("System = %q, want only the format warning", got)
+	}
+}
