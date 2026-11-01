@@ -8,6 +8,7 @@ import (
 
 	"github.com/Cassidy321/jogai/internal/archive"
 	"github.com/Cassidy321/jogai/internal/config"
+	"github.com/Cassidy321/jogai/internal/health"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/project"
 )
@@ -85,5 +86,14 @@ func printArchiveLine() bool {
 	}
 	fmt.Printf("  Archive:    %d messages from %d sessions, updated %s\n",
 		st.Messages, st.Sessions, st.LastIngest.Format("2006-01-02 15:04"))
-	return true
+	warning, err := store.FormatWarning()
+	if err != nil {
+		fmt.Printf("  Archive:    ✗ %v\n", err)
+		return false
+	}
+	alerts := health.System(health.Inputs{Now: time.Now(), LastIngest: st.LastIngest, FormatWarning: warning})
+	for _, a := range alerts {
+		fmt.Printf("  ! %s\n", a)
+	}
+	return len(alerts) == 0
 }
