@@ -51,6 +51,7 @@ func TestResolve(t *testing.T) {
 		{repo, Project{Key: repo, Name: "jogai"}},
 		{sub, Project{Key: repo, Name: "jogai"}},
 		{worktree, Project{Key: repo, Name: "jogai"}},
+		{filepath.Join(repo, "deleted", "since"), Project{Key: repo, Name: "jogai"}},
 		{plain, Project{Key: plain, Name: "notes"}},
 		{filepath.Join(root, "gone", "lezom-front"), Project{Key: filepath.Join(root, "gone", "lezom-front"), Name: "lezom-front"}},
 		{home, Project{}},
@@ -74,5 +75,15 @@ func TestNewResolver_DesktopScratchWorkspaceIsOutsideAnyProject(t *testing.T) {
 	cwd := "/Users/someone/Library/Application Support/Claude/scratch-workspaces/a/scratch-2026-10-28-ec2900"
 	if got := r.Resolve(cwd); got != (Project{}) {
 		t.Errorf("Resolve = %+v, want no project", got)
+	}
+}
+
+func TestResolve_MissingFolderDoesNotJoinARepoInHome(t *testing.T) {
+	home := realTempDir(t)
+	git(t, home, "init", "-q")
+	r := &Resolver{Home: home}
+	gone := filepath.Join(home, "gone", "app")
+	if got := r.Resolve(gone); got.Key != gone {
+		t.Errorf("Resolve(%q) = %+v, want its own key", gone, got)
 	}
 }
