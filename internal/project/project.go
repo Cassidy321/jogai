@@ -26,8 +26,12 @@ func NewResolver() (*Resolver, error) {
 		return nil, fmt.Errorf("resolve home dir: %w", err)
 	}
 	return &Resolver{
-		Home:      home,
-		TempRoots: []string{"/tmp", "/private/tmp", "/var/folders", "/private/var/folders", filepath.Clean(os.TempDir())},
+		Home: home,
+		TempRoots: []string{
+			"/tmp", "/private/tmp", "/var/folders", "/private/var/folders", filepath.Clean(os.TempDir()),
+			// Where the Claude desktop app runs a session started without a project folder.
+			filepath.Join(home, "Library", "Application Support", "Claude", "scratch-workspaces"),
+		},
 	}, nil
 }
 
