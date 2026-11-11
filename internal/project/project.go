@@ -40,10 +40,22 @@ func (r *Resolver) Resolve(cwd string) Project {
 		return Project{}
 	}
 	key := filepath.Clean(cwd)
-	if root, err := repoRoot(cwd); err == nil {
+	if root, ok := r.enclosingRepo(key); ok {
 		key = root
 	}
 	return Project{Key: key, Name: filepath.Base(key)}
+}
+
+// A transcript can be read long after it was written: by then the session's
+// folder may be deleted or on another branch, and only a parent tells the repo.
+func (r *Resolver) enclosingRepo(dir string) (string, bool) {
+	for ; !r.outside(dir); dir = filepath.Dir(dir) {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			root, err := repoRoot(dir)
+			return root, err == nil
+		}
+	}
+	return "", false
 }
 
 func (r *Resolver) outside(cwd string) bool {
