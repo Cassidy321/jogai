@@ -12,6 +12,7 @@ import (
 	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
+	"github.com/Cassidy321/jogai/internal/health"
 	"github.com/Cassidy321/jogai/internal/lastrun"
 	"github.com/Cassidy321/jogai/internal/output"
 	"github.com/Cassidy321/jogai/internal/parser"
@@ -123,6 +124,9 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	results := p.Run(context.Background(), spans)
 
 	failed := record(days, results, warnings, guarded.hashes)
+	if hint := stoppedHint(days, results, cfg.Summarizer); hint != "" {
+		logErrf("%s", hint)
+	}
 	if err := lastrun.SaveDays(days); err != nil {
 		logErrf("⚠ could not save the run history: %v", err)
 	}
@@ -239,6 +243,15 @@ func record(days map[string]lastrun.Day, results []recap.Day, warnings []string,
 		days[r.Span.Label] = d
 	}
 	return failed
+}
+
+func stoppedHint(days map[string]lastrun.Day, results []recap.Day, summarizer string) string {
+	for _, r := range results {
+		if kind := days[r.Span.Label].Kind; kind != "" {
+			return fmt.Sprintf("%s — %s to get the recaps going again.", health.Cause(kind, summarizer), health.Fix(kind, summarizer))
+		}
+	}
+	return ""
 }
 
 func saveLastRun(results []recap.Day, warnings []string) {

@@ -144,6 +144,20 @@ func TestRecord_KeepsTheKindOfFailure(t *testing.T) {
 	}
 }
 
+func TestStoppedHint(t *testing.T) {
+	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}}}
+	if got := stoppedHint(map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError}}, results, ""); got != "" {
+		t.Errorf("ordinary failure: %q, want no hint", got)
+	}
+	days := map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError, Kind: lastrun.KindAuth}}
+	if got := stoppedHint(days, results, ""); got != "jogai cannot log in to Claude — run `jogai login` in a terminal to get the recaps going again." {
+		t.Errorf("claude: %q", got)
+	}
+	if got := stoppedHint(days, results, "codex"); !strings.Contains(got, "codex login") {
+		t.Errorf("codex: %q", got)
+	}
+}
+
 func TestBuildActiveParsers_DefaultsToClaude(t *testing.T) {
 	cfg := &config.Config{}
 	parsers, err := activeSources(cfg)
@@ -211,10 +225,7 @@ func TestSelectSummarizer_PassesTheStoredToken(t *testing.T) {
 
 func TestSelectSummarizer_UnreadableKeychainFallsBackToTheCLILogin(t *testing.T) {
 	stubClaudeToken(t, "", errors.New("read the token from the Keychain: locked"))
-	var logged bytes.Buffer
-	orig := stderr
-	stderr = &logged
-	t.Cleanup(func() { stderr = orig })
+	logged := captureStderr(t)
 
 	if s, ok := selectSummarizer("claude").(summary.Claude); !ok || s.Token != "" {
 		t.Errorf("summarizer = %#v, want claude without a token", s)
@@ -379,6 +390,88 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	if n := archivedMessages(t); n != 4 {
 		t.Errorf("archive holds %d messages, want the 4 session lines", n)
 	}
+}
+
+const loggedOutStub = `#!/bin/sh
+/bin/cat > /dev/null
+echo call >> "$CALLS_FILE"
+echo '{"result":"Failed to authenticate. API Error: 401 OAuth access token is invalid.","is_error":true,"api_error_status":401}'
+exit 1
+`
+
+func captureStderr(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logged bytes.Buffer
+	orig := stderr
+	stderr = &logged
+	t.Cleanup(func() { stderr = orig })
+	return &logged
+}
+
+func recapped(t *testing.T, outDir string, labels ...string) {
+	t.Helper()
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range labels {
+		if d := days[label]; d.Status != lastrun.StatusOK || d.Kind != "" {
+			t.Errorf("%s = %+v, want ok", label, d)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, label+".md")); err != nil {
+			t.Errorf("expected a recap for %s: %v", label, err)
+		}
+	}
+}
+
+func TestRun_StopsAtADeadLoginThenCatchesUp(t *testing.T) {
+	calls := installClaudeStub(t)
+	stub := filepath.Join(filepath.Dir(calls), "claude")
+	working, err := os.ReadFile(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stub, []byte(loggedOutStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XPC_SERVICE_NAME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, noonDaysAgo(3), noonDaysAgo(1))
+	outDir := writeRunConfig(t, home)
+	logged := captureStderr(t)
+	first, later := noonDaysAgo(3).Format(devday.LabelFormat), noonDaysAgo(1).Format(devday.LabelFormat)
+
+	if err := (&RunCmd{}).Run(); err == nil {
+		t.Fatal("a run that cannot log in must fail")
+	}
+	if data, _ := os.ReadFile(calls); strings.Count(string(data), "call") != 1 {
+		t.Errorf("claude calls = %q, want one: the other days would fail the same way", data)
+	}
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := days[first]; d.Status != lastrun.StatusError || d.Kind != lastrun.KindAuth {
+		t.Errorf("%s = %+v, want a login failure", first, d)
+	}
+	if d, recorded := days[later]; recorded {
+		t.Errorf("%s must stay pending, got %+v", later, d)
+	}
+	if entries, _ := os.ReadDir(outDir); len(entries) != 0 {
+		t.Errorf("no recap can be written without a login, found %d file(s)", len(entries))
+	}
+	if !strings.Contains(logged.String(), "jogai login") {
+		t.Errorf("the run must name the command to run:\n%s", logged.String())
+	}
+
+	if err := os.WriteFile(stub, working, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("run after logging in again: %v", err)
+	}
+	recapped(t, outDir, first, later)
 }
 
 func TestRun_WritesIntoARecapFolderItCannotList(t *testing.T) {

@@ -107,6 +107,14 @@ func TestPrintDayIssues(t *testing.T) {
 	if printDayIssues(cfg, now) {
 		t.Error("a failed day must be reported")
 	}
+
+	history[recent[len(recent)-1].Label] = lastrun.Day{Status: lastrun.StatusError, Kind: lastrun.KindAuth, Error: "jogai: claude: 401"}
+	if err := lastrun.SaveDays(history); err != nil {
+		t.Fatal(err)
+	}
+	if printDayIssues(cfg, now) {
+		t.Error("a day stopped by the login must be reported")
+	}
 }
 
 func TestPrintArchiveLine_ReportsAlerts(t *testing.T) {

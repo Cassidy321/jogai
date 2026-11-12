@@ -11,6 +11,7 @@ import (
 	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
+	"github.com/Cassidy321/jogai/internal/health"
 	"github.com/Cassidy321/jogai/internal/lastrun"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/scheduler"
@@ -217,6 +218,10 @@ func printDayIssues(cfg *config.Config, now time.Time) bool {
 	for _, s := range devday.Recent(now, *cfg.DayEnd, catchUpDays) {
 		d, recorded := days[s.Label]
 		switch {
+		case recorded && d.Status == lastrun.StatusError && d.Kind != "":
+			ok = false
+			name := summarizerName(cfg)
+			fmt.Printf("  ! %s failed: %s — %s\n", s.Label, health.Cause(d.Kind, name), health.Fix(d.Kind, name))
 		case recorded && d.Status == lastrun.StatusError:
 			ok = false
 			fmt.Println(dayIssue(s.Label, d.Error))
