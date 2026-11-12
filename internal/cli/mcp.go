@@ -48,7 +48,7 @@ func (c *MCPCmd) Run() error {
 		Store:          env.store,
 		Refresh:        refresh,
 		ExcludeSession: os.Getenv("CLAUDE_CODE_SESSION_ID"),
-		Health:         health.Warnings(health.Inputs{Now: time.Now(), LastIngest: stats.LastIngest, FormatWarning: warning}),
+		Health:         health.Warnings(health.Inputs{Now: time.Now(), LastIngest: stats.LastIngest, FormatWarning: warning, Summarizer: summarizerName(cfg)}),
 		Version:        version,
 	})
 	return server.Run(ctx, &mcp.StdioTransport{})

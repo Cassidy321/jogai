@@ -73,9 +73,15 @@ func Load() (*Record, error) {
 	return &r, nil
 }
 
+const (
+	KindAuth   = "auth"
+	KindConfig = "config"
+)
+
 type Day struct {
 	Status    Status    `json:"status"`
 	Error     string    `json:"error,omitempty"`
+	Kind      string    `json:"kind,omitempty"`
 	UpdatedAt time.Time `json:"updated_at"`
 	Hash      string    `json:"hash,omitempty"`
 }

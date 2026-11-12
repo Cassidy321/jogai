@@ -63,7 +63,7 @@ func refreshArchive(env *archiveEnv) []string {
 	return []string{"some sessions could not be read: " + first}
 }
 
-func printArchiveLine() bool {
+func printArchiveLine(summarizer string) bool {
 	path, err := archive.DefaultPath()
 	if err != nil {
 		fmt.Printf("  Archive:    ✗ %v\n", err)
@@ -91,7 +91,7 @@ func printArchiveLine() bool {
 		fmt.Printf("  Archive:    ✗ %v\n", err)
 		return false
 	}
-	alerts := health.System(health.Inputs{Now: time.Now(), LastIngest: st.LastIngest, FormatWarning: warning})
+	alerts := health.System(health.Inputs{Now: time.Now(), LastIngest: st.LastIngest, FormatWarning: warning, Summarizer: summarizer})
 	for _, a := range alerts {
 		fmt.Printf("  ! %s\n", a)
 	}

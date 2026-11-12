@@ -7,8 +7,9 @@ import (
 )
 
 // Kind decides what the caller does with a failed day: retry now with backoff
-// (Transient), retry on the next run (Fatal, Auth), never retry (Refused: the
-// same content would be refused again).
+// (Transient), retry on the next run (Fatal), never retry (Refused: the same
+// content would be refused again), or stop the whole run (Auth, Config: every
+// other call would fail the same way until the user acts).
 type Kind int
 
 const (
@@ -16,7 +17,10 @@ const (
 	KindTransient
 	KindRefused
 	KindAuth
+	KindConfig
 )
+
+func (k Kind) NeedsUser() bool { return k == KindAuth || k == KindConfig }
 
 func (k Kind) String() string {
 	switch k {
@@ -28,6 +32,8 @@ func (k Kind) String() string {
 		return "refused"
 	case KindAuth:
 		return "auth"
+	case KindConfig:
+		return "config"
 	}
 	return "unknown"
 }
@@ -73,10 +79,18 @@ var (
 	authPatterns = []string{
 		"not logged in",
 		"please run /login",
+		"login expired",
+		"failed to authenticate",
+		"could not be refreshed",
+		"sign in again",
+		"missing bearer",
 		"invalid api key",
 		"authentication",
 		"unauthorized",
 		"codex login",
+	}
+	configPatterns = []string{
+		"is not supported when using codex",
 	}
 )
 
@@ -89,6 +103,8 @@ func classify(text string) Kind {
 		return KindRefused
 	case containsAny(lower, authPatterns):
 		return KindAuth
+	case containsAny(lower, configPatterns):
+		return KindConfig
 	default:
 		return KindFatal
 	}

@@ -1,6 +1,9 @@
 package cli
 
 import (
+	"bytes"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +15,8 @@ import (
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
+	"github.com/Cassidy321/jogai/internal/recap"
+	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 var (
@@ -113,6 +118,46 @@ func TestPendingSpans(t *testing.T) {
 	}
 }
 
+func TestRecord_KeepsTheKindOfFailure(t *testing.T) {
+	span := func(label string) devday.Span { return devday.Span{Label: label} }
+	results := []recap.Day{
+		{Span: span("2026-04-14"), Err: fmt.Errorf("jogai: %w", &summary.Error{Kind: summary.KindAuth, Msg: "not logged in"})},
+		{Span: span("2026-04-15"), Err: &summary.Error{Kind: summary.KindConfig, Msg: "model not supported"}},
+		{Span: span("2026-04-16"), Err: &summary.Error{Kind: summary.KindRefused, Msg: "flagged"}},
+		{Span: span("2026-04-17"), Err: errors.New("socket closed")},
+	}
+	days := map[string]lastrun.Day{}
+	if failed := record(days, results, nil, map[string]string{}); failed != 4 {
+		t.Errorf("failed = %d, want 4", failed)
+	}
+	want := map[string]lastrun.Day{
+		"2026-04-14": {Status: lastrun.StatusError, Kind: lastrun.KindAuth, Error: "jogai: not logged in"},
+		"2026-04-15": {Status: lastrun.StatusError, Kind: lastrun.KindConfig, Error: "model not supported"},
+		"2026-04-16": {Status: lastrun.StatusRefused, Error: "flagged"},
+		"2026-04-17": {Status: lastrun.StatusError, Error: "socket closed"},
+	}
+	for label, w := range want {
+		got := days[label]
+		if got.Status != w.Status || got.Kind != w.Kind || got.Error != w.Error {
+			t.Errorf("%s = %+v, want %+v", label, got, w)
+		}
+	}
+}
+
+func TestStoppedHint(t *testing.T) {
+	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}}}
+	if got := stoppedHint(map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError}}, results, ""); got != "" {
+		t.Errorf("ordinary failure: %q, want no hint", got)
+	}
+	days := map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError, Kind: lastrun.KindAuth}}
+	if got := stoppedHint(days, results, ""); got != "jogai cannot log in to Claude — run `jogai login` in a terminal to get the recaps going again." {
+		t.Errorf("claude: %q", got)
+	}
+	if got := stoppedHint(days, results, "codex"); !strings.Contains(got, "codex login") {
+		t.Errorf("codex: %q", got)
+	}
+}
+
 func TestBuildActiveParsers_DefaultsToClaude(t *testing.T) {
 	cfg := &config.Config{}
 	parsers, err := activeSources(cfg)
@@ -153,6 +198,40 @@ func TestSelectSummarizer_DefaultsToClaude(t *testing.T) {
 	s := selectSummarizer("")
 	if s.Name() != "claude" {
 		t.Errorf("default summarizer = %q, want claude", s.Name())
+	}
+}
+
+func TestMain(m *testing.M) {
+	loadClaudeToken = func() (string, error) { return "", nil }
+	os.Exit(m.Run())
+}
+
+func stubClaudeToken(t *testing.T, token string, err error) {
+	t.Helper()
+	orig := loadClaudeToken
+	loadClaudeToken = func() (string, error) { return token, err }
+	t.Cleanup(func() { loadClaudeToken = orig })
+}
+
+func TestSelectSummarizer_PassesTheStoredToken(t *testing.T) {
+	stubClaudeToken(t, "stored", nil)
+	if s, ok := selectSummarizer("").(summary.Claude); !ok || s.Token != "stored" {
+		t.Errorf("summarizer = %#v, want claude with the stored token", s)
+	}
+	if _, ok := selectSummarizer("codex").(summary.Codex); !ok {
+		t.Error("codex takes no token")
+	}
+}
+
+func TestSelectSummarizer_UnreadableKeychainFallsBackToTheCLILogin(t *testing.T) {
+	stubClaudeToken(t, "", errors.New("read the token from the Keychain: locked"))
+	logged := captureStderr(t)
+
+	if s, ok := selectSummarizer("claude").(summary.Claude); !ok || s.Token != "" {
+		t.Errorf("summarizer = %#v, want claude without a token", s)
+	}
+	if !strings.Contains(logged.String(), "locked") {
+		t.Errorf("the Keychain failure must be logged, got %q", logged.String())
 	}
 }
 
@@ -311,6 +390,88 @@ func TestRun_CatchesUpMissedDays(t *testing.T) {
 	if n := archivedMessages(t); n != 4 {
 		t.Errorf("archive holds %d messages, want the 4 session lines", n)
 	}
+}
+
+const loggedOutStub = `#!/bin/sh
+/bin/cat > /dev/null
+echo call >> "$CALLS_FILE"
+echo '{"result":"Failed to authenticate. API Error: 401 OAuth access token is invalid.","is_error":true,"api_error_status":401}'
+exit 1
+`
+
+func captureStderr(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logged bytes.Buffer
+	orig := stderr
+	stderr = &logged
+	t.Cleanup(func() { stderr = orig })
+	return &logged
+}
+
+func recapped(t *testing.T, outDir string, labels ...string) {
+	t.Helper()
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, label := range labels {
+		if d := days[label]; d.Status != lastrun.StatusOK || d.Kind != "" {
+			t.Errorf("%s = %+v, want ok", label, d)
+		}
+		if _, err := os.Stat(filepath.Join(outDir, label+".md")); err != nil {
+			t.Errorf("expected a recap for %s: %v", label, err)
+		}
+	}
+}
+
+func TestRun_StopsAtADeadLoginThenCatchesUp(t *testing.T) {
+	calls := installClaudeStub(t)
+	stub := filepath.Join(filepath.Dir(calls), "claude")
+	working, err := os.ReadFile(stub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stub, []byte(loggedOutStub), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XPC_SERVICE_NAME", "")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeClaudeSession(t, home, noonDaysAgo(3), noonDaysAgo(1))
+	outDir := writeRunConfig(t, home)
+	logged := captureStderr(t)
+	first, later := noonDaysAgo(3).Format(devday.LabelFormat), noonDaysAgo(1).Format(devday.LabelFormat)
+
+	if err := (&RunCmd{}).Run(); err == nil {
+		t.Fatal("a run that cannot log in must fail")
+	}
+	if data, _ := os.ReadFile(calls); strings.Count(string(data), "call") != 1 {
+		t.Errorf("claude calls = %q, want one: the other days would fail the same way", data)
+	}
+	days, err := lastrun.LoadDays()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := days[first]; d.Status != lastrun.StatusError || d.Kind != lastrun.KindAuth {
+		t.Errorf("%s = %+v, want a login failure", first, d)
+	}
+	if d, recorded := days[later]; recorded {
+		t.Errorf("%s must stay pending, got %+v", later, d)
+	}
+	if entries, _ := os.ReadDir(outDir); len(entries) != 0 {
+		t.Errorf("no recap can be written without a login, found %d file(s)", len(entries))
+	}
+	if !strings.Contains(logged.String(), "jogai login") {
+		t.Errorf("the run must name the command to run:\n%s", logged.String())
+	}
+
+	if err := os.WriteFile(stub, working, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := (&RunCmd{}).Run(); err != nil {
+		t.Fatalf("run after logging in again: %v", err)
+	}
+	recapped(t, outDir, first, later)
 }
 
 func TestRun_WritesIntoARecapFolderItCannotList(t *testing.T) {

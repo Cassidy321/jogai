@@ -5,13 +5,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
 
-type Claude struct{}
+type Claude struct {
+	Token string
+}
+
+const tokenEnv = "CLAUDE_CODE_OAUTH_TOKEN"
+
+// The CLI prefers these over the token: left in place, a manual run would
+// succeed on a login the scheduled run does not have and hide a dead token.
+var strongerAuthEnv = []string{"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", tokenEnv}
 
 func (Claude) Name() string { return NameClaude }
 
@@ -39,19 +49,54 @@ func (c Claude) Generate(ctx context.Context, req Request) (*Summary, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build prompt: %w", err)
 	}
-	resp, err := c.run(ctx, prompt)
+	result, err := c.ask(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
-	if resp.IsError {
-		return nil, &Error{Kind: classify(resp.Result), Msg: "claude: " + resp.Result}
+	return &Summary{Content: strings.TrimSpace(result)}, nil
+}
+
+func (c Claude) Ping(ctx context.Context) error {
+	_, err := c.ask(ctx, "Reply with the single word: ok")
+	return err
+}
+
+func (c Claude) ask(ctx context.Context, prompt string) (string, error) {
+	resp, err := c.run(ctx, prompt)
+	if err != nil {
+		return "", err
 	}
-	return &Summary{Content: strings.TrimSpace(resp.Result)}, nil
+	if resp.IsError {
+		return "", &Error{Kind: resp.kind(), Msg: "claude: " + resp.Result}
+	}
+	return resp.Result, nil
+}
+
+func (c Claude) env() []string {
+	if c.Token == "" {
+		return nil
+	}
+	env := slices.DeleteFunc(os.Environ(), func(kv string) bool {
+		name, _, _ := strings.Cut(kv, "=")
+		return slices.Contains(strongerAuthEnv, name)
+	})
+	return append(env, tokenEnv+"="+c.Token)
 }
 
 type claudeResponse struct {
-	Result  string `json:"result"`
-	IsError bool   `json:"is_error"`
+	Result         string `json:"result"`
+	IsError        bool   `json:"is_error"`
+	APIErrorStatus int    `json:"api_error_status"`
+}
+
+// The status outlives a rewording of the message. The text is still read
+// first, so a message already known as transient or refused keeps its kind.
+func (r *claudeResponse) kind() Kind {
+	k := classify(r.Result)
+	if k == KindFatal && r.APIErrorStatus == http.StatusUnauthorized {
+		return KindAuth
+	}
+	return k
 }
 
 func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error) {
@@ -62,6 +107,7 @@ func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error)
 	cmd := exec.CommandContext(ctx, bin, claudeArgs...)
 	// Neutral CWD so claude's CLAUDE.md walk-up doesn't cross the user's home and trigger macOS TCC prompts.
 	cmd.Dir = os.TempDir()
+	cmd.Env = c.env()
 	cmd.Stdin = strings.NewReader(prompt)
 	// Children of a killed claude can keep stdout open; without a delay Output never returns.
 	cmd.WaitDelay = 5 * time.Second
