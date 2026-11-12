@@ -45,6 +45,9 @@ func (p *Pipeline) Run(ctx context.Context, spans []devday.Span) []Day {
 	for _, span := range spans {
 		s, err := p.runDay(ctx, span)
 		days = append(days, Day{Span: span, Summary: s, Err: err})
+		if summary.KindOf(err).NeedsUser() {
+			break
+		}
 	}
 	return days
 }
@@ -67,6 +70,9 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 			heading = outsideProjects
 		}
 		body, err := p.summarize(ctx, span, a)
+		if summary.KindOf(err).NeedsUser() {
+			return nil, fmt.Errorf("%s: %w", heading, err)
+		}
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", heading, err))
 			continue

@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
+	"github.com/Cassidy321/jogai/internal/recap"
+	"github.com/Cassidy321/jogai/internal/summary"
 )
 
 var (
@@ -110,6 +114,32 @@ func TestPendingSpans(t *testing.T) {
 	got = pendingSpans(candidates, map[string]lastrun.Day{}, noRecap)
 	if len(got) != 4 {
 		t.Errorf("without history or files every day is pending, got %d", len(got))
+	}
+}
+
+func TestRecord_KeepsTheKindOfFailure(t *testing.T) {
+	span := func(label string) devday.Span { return devday.Span{Label: label} }
+	results := []recap.Day{
+		{Span: span("2026-04-14"), Err: fmt.Errorf("jogai: %w", &summary.Error{Kind: summary.KindAuth, Msg: "not logged in"})},
+		{Span: span("2026-04-15"), Err: &summary.Error{Kind: summary.KindConfig, Msg: "model not supported"}},
+		{Span: span("2026-04-16"), Err: &summary.Error{Kind: summary.KindRefused, Msg: "flagged"}},
+		{Span: span("2026-04-17"), Err: errors.New("socket closed")},
+	}
+	days := map[string]lastrun.Day{}
+	if failed := record(days, results, nil, map[string]string{}); failed != 4 {
+		t.Errorf("failed = %d, want 4", failed)
+	}
+	want := map[string]lastrun.Day{
+		"2026-04-14": {Status: lastrun.StatusError, Kind: lastrun.KindAuth, Error: "jogai: not logged in"},
+		"2026-04-15": {Status: lastrun.StatusError, Kind: lastrun.KindConfig, Error: "model not supported"},
+		"2026-04-16": {Status: lastrun.StatusRefused, Error: "flagged"},
+		"2026-04-17": {Status: lastrun.StatusError, Error: "socket closed"},
+	}
+	for label, w := range want {
+		got := days[label]
+		if got.Status != w.Status || got.Kind != w.Kind || got.Error != w.Error {
+			t.Errorf("%s = %+v, want %+v", label, got, w)
+		}
 	}
 }
 

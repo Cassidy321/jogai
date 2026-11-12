@@ -215,8 +215,14 @@ func record(days map[string]lastrun.Day, results []recap.Day, warnings []string,
 		case r.Err != nil:
 			failed++
 			d.Status, d.Error = lastrun.StatusError, r.Err.Error()
-			if summary.KindOf(r.Err) == summary.KindRefused {
+			switch summary.KindOf(r.Err) {
+			case summary.KindRefused:
 				d.Status = lastrun.StatusRefused
+			case summary.KindAuth:
+				d.Kind = lastrun.KindAuth
+			case summary.KindConfig:
+				d.Kind = lastrun.KindConfig
+			case summary.KindFatal, summary.KindTransient:
 			}
 			logErrf("dev day %s: %v", r.Span.Label, r.Err)
 		case r.Summary == nil:
