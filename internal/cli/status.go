@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
@@ -162,7 +163,7 @@ func printLastRun() {
 		fmt.Printf("              ⚠ %s\n", w)
 	}
 	if r.Error != "" {
-		fmt.Printf("              ✗ %s\n", r.Error)
+		fmt.Println(hanging("              ✗ ", r.Error))
 	}
 }
 
@@ -208,7 +209,7 @@ func printDayIssues(cfg *config.Config, now time.Time) bool {
 		switch {
 		case recorded && d.Status == lastrun.StatusError:
 			ok = false
-			fmt.Printf("  ! %s failed, retried on the next run: %s\n", s.Label, firstLine(d.Error))
+			fmt.Println(dayIssue(s.Label, d.Error))
 		case recorded && d.Status == lastrun.StatusRefused:
 			ok = false
 			fmt.Printf("  ! %s was refused by the model — retry with: jogai run --day %s\n", s.Label, s.Label)
@@ -222,7 +223,26 @@ func printDayIssues(cfg *config.Config, now time.Time) bool {
 	return ok
 }
 
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return line
+func dayIssue(label, failure string) string {
+	head := fmt.Sprintf("  ! %s failed, retried on the next run:", label)
+	lines := nonBlankLines(failure)
+	if len(lines) <= 1 {
+		return head + " " + strings.Join(lines, "")
+	}
+	return head + "\n      " + strings.Join(lines, "\n      ")
+}
+
+func hanging(prefix, text string) string {
+	indent := strings.Repeat(" ", utf8.RuneCountInString(prefix))
+	return prefix + strings.Join(nonBlankLines(text), "\n"+indent)
+}
+
+func nonBlankLines(text string) []string {
+	var out []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }

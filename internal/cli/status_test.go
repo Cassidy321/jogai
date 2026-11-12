@@ -30,6 +30,34 @@ func TestPrintSourcesStatus_NoPanic(t *testing.T) {
 	}
 }
 
+func TestHanging(t *testing.T) {
+	tests := []struct {
+		name, prefix, text, want string
+	}{
+		{"one line", "  ✗ ", "socket closed", "  ✗ socket closed"},
+		{"one line per project", "  ✗ ", "jogai: down\ndokaa: down\n", "  ✗ jogai: down\n    dokaa: down"},
+		{"blank lines dropped", "! ", "a\n\n  \nb", "! a\n  b"},
+		{"empty", "  ✗ ", "", "  ✗ "},
+	}
+	for _, tt := range tests {
+		if got := hanging(tt.prefix, tt.text); got != tt.want {
+			t.Errorf("%s: hanging = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestDayIssue(t *testing.T) {
+	one := dayIssue("2026-11-10", "socket closed")
+	if one != "  ! 2026-11-10 failed, retried on the next run: socket closed" {
+		t.Errorf("one line = %q", one)
+	}
+	several := dayIssue("2026-11-10", "jogai: down\ndokaa: down")
+	want := "  ! 2026-11-10 failed, retried on the next run:\n      jogai: down\n      dokaa: down"
+	if several != want {
+		t.Errorf("several lines =\n%s\nwant\n%s", several, want)
+	}
+}
+
 func TestPrintDayIssues(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC)
