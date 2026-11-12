@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/Cassidy321/jogai/internal/config"
 )
@@ -87,6 +88,34 @@ func TestProbeWriteAccess_Success(t *testing.T) {
 func TestProbeWriteAccess_MissingDirectory(t *testing.T) {
 	if err := probeWriteAccess(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
 		t.Fatal("expected error for missing directory")
+	}
+}
+
+func TestNeedsClaudeToken(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	if !needsClaudeToken("claude", true, now) {
+		t.Error("claude without a token must be offered one")
+	}
+	if needsClaudeToken("codex", true, now) {
+		t.Error("codex has no token to offer")
+	}
+	if needsClaudeToken("claude", false, now) {
+		t.Error("no offer where the token cannot be kept")
+	}
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude_token.json"), []byte(`{"created_at":"2026-11-12T10:00:00Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if needsClaudeToken("claude", true, now) {
+		t.Error("a fresh token must not be offered again")
+	}
+	if !needsClaudeToken("claude", true, now.AddDate(0, 11, 15)) {
+		t.Error("a token about to expire must be offered again")
 	}
 }
 
