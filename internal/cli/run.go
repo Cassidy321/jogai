@@ -298,7 +298,7 @@ func activeSources(cfg *config.Config) ([]parser.Source, error) {
 	return out, nil
 }
 
-var loadClaudeToken = func() (string, error) { return claudetoken.New().Load() }
+var loadClaudeToken = func() (string, error) { return claudetoken.New(claudetoken.Unattended).Load() }
 
 func selectSummarizer(name string) summary.Summarizer {
 	if name == summary.NameCodex {

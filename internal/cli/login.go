@@ -136,7 +136,7 @@ func systemLogin() loginDeps {
 			return summary.Claude{Token: token}.Ping(ctx)
 		},
 		save: func(token string) (time.Time, error) {
-			if err := claudetoken.New().Save(token); err != nil {
+			if err := claudetoken.New(claudetoken.Attended).Save(token); err != nil {
 				return time.Time{}, err
 			}
 			st, _ := claudetoken.LoadState()
