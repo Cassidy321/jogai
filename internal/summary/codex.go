@@ -66,7 +66,7 @@ func (c Codex) exec(ctx context.Context, bin, prompt string, isolated bool) (str
 		if isolated && strings.Contains(detail, "unexpected argument '"+ignoreUserConfig+"'") {
 			return "", errNoIgnoreUserConfig
 		}
-		return "", &Error{Kind: classify(detail), Msg: fmt.Sprintf("codex CLI failed (%v): %s", err, detail)}
+		return "", &Error{Kind: classify(detail), Msg: fmt.Sprintf("codex CLI failed (%v): %s", err, codexFailure(detail))}
 	}
 
 	body, err := os.ReadFile(outPath)
@@ -78,6 +78,18 @@ func (c Codex) exec(ctx context.Context, bin, prompt string, isolated bool) (str
 		return "", &Error{Kind: KindFatal, Msg: "codex returned an empty recap"}
 	}
 	return content, nil
+}
+
+// Codex logs its whole session on stderr and ends with the failure: that last
+// line is what a user can act on. The kind is still read from the whole log.
+func codexFailure(log string) string {
+	lines := strings.Split(log, "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if msg, ok := strings.CutPrefix(strings.TrimSpace(lines[i]), "ERROR: "); ok {
+			return msg
+		}
+	}
+	return log
 }
 
 // --ephemeral: a persisted session would be ingested and recapped the next day.

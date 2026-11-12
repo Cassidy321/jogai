@@ -143,6 +143,43 @@ done
 	}
 }
 
+func TestCodexGenerate_KeepsTheErrorOutOfTheLog(t *testing.T) {
+	stubCLI(t, "codex", `#!/bin/sh
+/bin/cat >&2 <<'LOG'
+OpenAI Codex v0.167.2
+--------
+model: gpt-6-luna
+--------
+2026-11-12T08:40:20.930327Z ERROR codex_models_manager::manager: failed to refresh available models: unexpected status 401 Unauthorized: Could not parse your authentication token.
+ERROR: Reconnecting... 1/5
+ERROR: Your access token could not be refreshed. Please log out and sign in again.
+ERROR: Your access token could not be refreshed. Please log out and sign in again.
+LOG
+exit 1
+`)
+	_, err := (Codex{}).Generate(context.Background(), Request{Sessions: oneSession})
+	want := "codex CLI failed (exit status 1): Your access token could not be refreshed. Please log out and sign in again."
+	if err == nil || err.Error() != want {
+		t.Errorf("err = %v\nwant %s", err, want)
+	}
+	if KindOf(err) != KindAuth {
+		t.Errorf("KindOf = %v, want auth", KindOf(err))
+	}
+}
+
+func TestCodexFailure(t *testing.T) {
+	tests := []struct{ name, log, want string }{
+		{"last error line", "warning: x\nERROR: Reconnecting... 5/5\nERROR: model refused\n", "model refused"},
+		{"no error line keeps the log", "boom\nmore", "boom\nmore"},
+		{"empty", "", ""},
+	}
+	for _, tt := range tests {
+		if got := codexFailure(tt.log); got != tt.want {
+			t.Errorf("%s: codexFailure = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestCodexGenerate_StubbedBinaryFailure(t *testing.T) {
 	dir := t.TempDir()
 	stubPath := filepath.Join(dir, "codex")
