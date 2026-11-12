@@ -58,6 +58,31 @@ func TestDayIssue(t *testing.T) {
 	}
 }
 
+func TestTokenNote(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	now := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	if got := tokenNote("claude", now); got != "" {
+		t.Errorf("without a token: %q, want nothing", got)
+	}
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude_token.json"), []byte(`{"created_at":"2026-11-12T10:00:00Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := tokenNote("claude", now); got != " (token valid until 2027-11-12)" {
+		t.Errorf("valid token: %q", got)
+	}
+	if got := tokenNote("claude", now.AddDate(1, 0, 1)); !strings.Contains(got, "expired on 2027-11-12") || !strings.Contains(got, "jogai login") {
+		t.Errorf("expired token: %q", got)
+	}
+	if got := tokenNote("codex", now); got != "" {
+		t.Errorf("codex: %q, want nothing", got)
+	}
+}
+
 func TestPrintDayIssues(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Date(2026, 4, 18, 14, 0, 0, 0, time.UTC)

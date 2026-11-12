@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
@@ -80,10 +81,7 @@ func printSourcesSection(cfg *config.Config, det detectedSources, derr error) bo
 }
 
 func printSummarizerSection(cfg *config.Config) bool {
-	summarizer := summary.NameClaude
-	if cfg != nil && cfg.Summarizer != "" {
-		summarizer = cfg.Summarizer
-	}
+	summarizer := summarizerName(cfg)
 	var sizer summary.Summarizer
 	switch summarizer {
 	case summary.NameCodex:
@@ -95,8 +93,20 @@ func printSummarizerSection(cfg *config.Config) bool {
 		fmt.Printf("  Summarizer: ✗ %s CLI not found\n", summarizer)
 		return false
 	}
-	fmt.Printf("  Summarizer: ✓ %s CLI\n", summarizer)
+	fmt.Printf("  Summarizer: ✓ %s CLI%s\n", summarizer, tokenNote(summarizer, time.Now()))
 	return true
+}
+
+func tokenNote(summarizer string, now time.Time) string {
+	st, ok := claudetoken.LoadState()
+	if !ok || summarizer != summary.NameClaude {
+		return ""
+	}
+	date := st.ExpiresAt().Format("2006-01-02")
+	if st.Expired(now) {
+		return fmt.Sprintf(" (token expired on %s — run `jogai login`)", date)
+	}
+	return fmt.Sprintf(" (token valid until %s)", date)
 }
 
 func printOutputSection(cfg *config.Config, cfgErr error) bool {

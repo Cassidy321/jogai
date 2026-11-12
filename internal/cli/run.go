@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
@@ -284,11 +285,15 @@ func activeSources(cfg *config.Config) ([]parser.Source, error) {
 	return out, nil
 }
 
+var loadClaudeToken = func() (string, error) { return claudetoken.New().Load() }
+
 func selectSummarizer(name string) summary.Summarizer {
-	switch name {
-	case summary.NameCodex:
+	if name == summary.NameCodex {
 		return summary.Codex{}
-	default:
-		return summary.Claude{}
 	}
+	token, err := loadClaudeToken()
+	if err != nil {
+		logErrf("⚠ %v — using the claude CLI's own login", err)
+	}
+	return summary.Claude{Token: token}
 }

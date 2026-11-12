@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/Cassidy321/jogai/internal/archive"
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/scheduler"
 	"github.com/Cassidy321/jogai/internal/summary"
@@ -29,6 +30,12 @@ func (c *UninstallCmd) Run() error {
 		if cmd.Run() == nil {
 			fmt.Println("  ✓ removed from Claude Code")
 		}
+	}
+	switch removed, err := claudetoken.New().Delete(); {
+	case err != nil:
+		fmt.Printf("  ! %v\n", err)
+	case removed:
+		fmt.Println("  ✓ Claude token removed from the Keychain")
 	}
 	dir, err := config.Dir()
 	if err != nil {

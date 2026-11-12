@@ -204,6 +204,68 @@ exit 1
 	}
 }
 
+const envDumpStub = `#!/bin/sh
+/bin/cat > /dev/null
+echo "token=$CLAUDE_CODE_OAUTH_TOKEN key=$ANTHROPIC_API_KEY auth=$ANTHROPIC_AUTH_TOKEN home=$HOME" > "$ARGS_FILE"
+echo '{"result":"ok","is_error":false}'
+`
+
+func TestClaude_PassesItsTokenAndNothingStronger(t *testing.T) {
+	envFile := stubCLI(t, "claude", envDumpStub)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "from-the-app")
+	t.Setenv("ANTHROPIC_API_KEY", "api-key")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "auth-token")
+	t.Setenv("HOME", "/somewhere")
+
+	if _, err := (Claude{Token: "stored"}).Generate(context.Background(), Request{Sessions: oneSession}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "token=stored key= auth= home=/somewhere\n"; string(got) != want {
+		t.Errorf("claude env = %q, want %q", got, want)
+	}
+}
+
+func TestClaude_WithoutTokenKeepsTheEnvironment(t *testing.T) {
+	envFile := stubCLI(t, "claude", envDumpStub)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "from-the-app")
+	t.Setenv("ANTHROPIC_API_KEY", "api-key")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv("HOME", "/somewhere")
+
+	if _, err := (Claude{}).Generate(context.Background(), Request{Sessions: oneSession}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "token=from-the-app key=api-key auth= home=/somewhere\n"; string(got) != want {
+		t.Errorf("claude env = %q, want %q", got, want)
+	}
+}
+
+func TestClaudePing(t *testing.T) {
+	stubCLI(t, "claude", `#!/bin/sh
+/bin/cat > /dev/null
+echo '{"result":"ok","is_error":false}'
+`)
+	if err := (Claude{Token: "good"}).Ping(context.Background()); err != nil {
+		t.Errorf("Ping = %v, want nil", err)
+	}
+	stubCLI(t, "claude", `#!/bin/sh
+/bin/cat > /dev/null
+echo '{"result":"Failed to authenticate. API Error: 401 OAuth access token is invalid.","is_error":true,"api_error_status":401}'
+exit 1
+`)
+	if err := (Claude{Token: "bad"}).Ping(context.Background()); KindOf(err) != KindAuth {
+		t.Errorf("Ping = %v (%v), want an auth error", err, KindOf(err))
+	}
+}
+
 func TestClaudeGenerate_TimeoutIsTransient(t *testing.T) {
 	stubCLI(t, "claude", "#!/bin/sh\nexec /bin/sleep 5\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)

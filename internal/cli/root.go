@@ -12,6 +12,7 @@ var version = "dev"
 
 type CLI struct {
 	Init      InitCmd      `cmd:"" help:"Setup jogai for the first time."`
+	Login     LoginCmd     `cmd:"" help:"Connect recaps to Claude for one year, without the terminal login."`
 	Run       RunCmd       `cmd:"" help:"Generate a recap now."`
 	Schedule  ScheduleCmd  `cmd:"" help:"Manage scheduled recaps."`
 	Status    StatusCmd    `cmd:"" help:"Show current config and system health."`

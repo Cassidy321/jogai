@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -183,6 +184,43 @@ func TestSelectSummarizer_DefaultsToClaude(t *testing.T) {
 	s := selectSummarizer("")
 	if s.Name() != "claude" {
 		t.Errorf("default summarizer = %q, want claude", s.Name())
+	}
+}
+
+func TestMain(m *testing.M) {
+	loadClaudeToken = func() (string, error) { return "", nil }
+	os.Exit(m.Run())
+}
+
+func stubClaudeToken(t *testing.T, token string, err error) {
+	t.Helper()
+	orig := loadClaudeToken
+	loadClaudeToken = func() (string, error) { return token, err }
+	t.Cleanup(func() { loadClaudeToken = orig })
+}
+
+func TestSelectSummarizer_PassesTheStoredToken(t *testing.T) {
+	stubClaudeToken(t, "stored", nil)
+	if s, ok := selectSummarizer("").(summary.Claude); !ok || s.Token != "stored" {
+		t.Errorf("summarizer = %#v, want claude with the stored token", s)
+	}
+	if _, ok := selectSummarizer("codex").(summary.Codex); !ok {
+		t.Error("codex takes no token")
+	}
+}
+
+func TestSelectSummarizer_UnreadableKeychainFallsBackToTheCLILogin(t *testing.T) {
+	stubClaudeToken(t, "", errors.New("read the token from the Keychain: locked"))
+	var logged bytes.Buffer
+	orig := stderr
+	stderr = &logged
+	t.Cleanup(func() { stderr = orig })
+
+	if s, ok := selectSummarizer("claude").(summary.Claude); !ok || s.Token != "" {
+		t.Errorf("summarizer = %#v, want claude without a token", s)
+	}
+	if !strings.Contains(logged.String(), "locked") {
+		t.Errorf("the Keychain failure must be logged, got %q", logged.String())
 	}
 }
 
