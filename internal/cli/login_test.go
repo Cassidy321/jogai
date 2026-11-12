@@ -63,7 +63,7 @@ func TestLogin_SavesAnAcceptedToken(t *testing.T) {
 		t.Errorf("saved = %q", s.saved)
 	}
 	out := s.out.String()
-	if !strings.Contains(out, "until 2027-11-12") || strings.Contains(out, "jogai run") {
+	if !strings.Contains(out, "until 2027-11-12") || !strings.Contains(out, `in your macOS Keychain, under "jogai"`) || strings.Contains(out, "jogai run") {
 		t.Errorf("output =\n%s", out)
 	}
 }

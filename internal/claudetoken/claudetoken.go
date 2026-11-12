@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	service      = "jogai"
+	Service      = "jogai"
 	account      = "claude-token"
 	exitNotFound = 44
 	stateFile    = "claude_token.json"
@@ -86,7 +86,7 @@ func security(bin string, patience time.Duration) runner {
 // read back because the scheduled run only ever reads: a token that cannot be
 // read must fail here, in front of the user, not at night.
 func (s Store) Save(token string) error {
-	line := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", service, account, hex.EncodeToString([]byte(token)))
+	line := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", Service, account, hex.EncodeToString([]byte(token)))
 	if _, _, err := s.run(line, "-i"); err != nil {
 		return fmt.Errorf("save the token in the Keychain: %w", err)
 	}
@@ -105,7 +105,7 @@ func (s Store) Save(token string) error {
 }
 
 func (s Store) Load() (string, error) {
-	out, exit, err := s.run("", "find-generic-password", "-s", service, "-a", account, "-w")
+	out, exit, err := s.run("", "find-generic-password", "-s", Service, "-a", account, "-w")
 	switch {
 	case errors.Is(err, ErrUnsupported):
 		return "", nil
@@ -119,7 +119,7 @@ func (s Store) Load() (string, error) {
 }
 
 func (s Store) Delete() (removed bool, err error) {
-	_, exit, err := s.run("", "delete-generic-password", "-s", service, "-a", account)
+	_, exit, err := s.run("", "delete-generic-password", "-s", Service, "-a", account)
 	removeState()
 	switch {
 	case errors.Is(err, ErrUnsupported), exit == exitNotFound:
