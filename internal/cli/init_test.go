@@ -91,6 +91,48 @@ func TestProbeWriteAccess_MissingDirectory(t *testing.T) {
 	}
 }
 
+func TestUpdatedConfig_KeepsWhatTheWizardDoesNotAsk(t *testing.T) {
+	off := false
+	existing := &config.Config{
+		OutputDir:  "/old",
+		DayEnd:     &config.TimeOfDay{Hour: 0},
+		Sources:    []string{"claude-code"},
+		Summarizer: "claude",
+		AutoUpdate: &off,
+	}
+	got := updatedConfig(existing, "/new", config.TimeOfDay{Hour: 5}, []string{"claude-code", "codex"}, "codex")
+	if got.AutoUpdate == nil || *got.AutoUpdate {
+		t.Errorf("auto_update = %v, want it kept off", got.AutoUpdate)
+	}
+	if got.OutputDir != "/new" || got.DayEnd.Hour != 5 || len(got.Sources) != 2 || got.Summarizer != "codex" {
+		t.Errorf("config = %+v, want the new answers", got)
+	}
+	if existing.OutputDir != "/old" || existing.DayEnd.Hour != 0 {
+		t.Errorf("the saved config must not be modified in place: %+v", existing)
+	}
+	t.Setenv("HOME", t.TempDir())
+	if err := config.Save(got); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.AutoUpdateEnabled() {
+		t.Error("auto_update: false must still be in the saved file")
+	}
+}
+
+func TestUpdatedConfig_FirstSetup(t *testing.T) {
+	got := updatedConfig(nil, "/recaps", config.TimeOfDay{Hour: 5}, []string{"claude-code"}, "claude")
+	if got.OutputDir != "/recaps" || got.DayEnd.Hour != 5 || got.Summarizer != "claude" || got.AutoUpdate != nil {
+		t.Errorf("config = %+v", got)
+	}
+	if !got.AutoUpdateEnabled() {
+		t.Error("updates stay on by default")
+	}
+}
+
 func TestNeedsClaudeToken(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -104,12 +104,7 @@ func (c *InitCmd) Run() error {
 		return fmt.Errorf("cannot create output directory %s: %w", outputDir, err)
 	}
 
-	cfg := &config.Config{
-		OutputDir:  outputDir,
-		DayEnd:     &parsedDayEnd,
-		Sources:    selectedSources,
-		Summarizer: summarizer,
-	}
+	cfg := updatedConfig(existing, outputDir, parsedDayEnd, selectedSources, summarizer)
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
@@ -131,6 +126,20 @@ func (c *InitCmd) Run() error {
 
 	fmt.Println("\nRun 'jogai run' to generate your first recap.")
 	return nil
+}
+
+// The saved config is the starting point: a setting the wizard does not ask
+// about (auto_update) is the user's and must survive a second run.
+func updatedConfig(existing *config.Config, outputDir string, dayEnd config.TimeOfDay, sources []string, summarizer string) *config.Config {
+	cfg := config.Config{}
+	if existing != nil {
+		cfg = *existing
+	}
+	cfg.OutputDir = outputDir
+	cfg.DayEnd = &dayEnd
+	cfg.Sources = sources
+	cfg.Summarizer = summarizer
+	return &cfg
 }
 
 func needsClaudeToken(summarizer string, supported bool, now time.Time) bool {
