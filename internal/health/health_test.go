@@ -83,6 +83,40 @@ func TestWarnings_RefusedModelNamesTheSetting(t *testing.T) {
 	}
 }
 
+func TestSystem_WarnsBeforeTheTokenExpires(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, 11, 12, 10, 0, 0, 0, time.UTC)
+	expires := created.Add(365 * 24 * time.Hour)
+	if err := os.WriteFile(filepath.Join(dir, "claude_token.json"), []byte(`{"created_at":"2026-11-12T10:00:00Z"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name       string
+		now        time.Time
+		summarizer string
+		want       string
+	}{
+		{"fresh", created, "claude", ""},
+		{"31 days left", expires.Add(-31 * 24 * time.Hour), "claude", ""},
+		{"30 days left", expires.Add(-30 * 24 * time.Hour), "claude", "jogai's Claude token expires on 2027-11-12 (in 30 days) — run `jogai login` in a terminal to renew it"},
+		{"default summarizer", expires.Add(-36 * time.Hour), "", "jogai's Claude token expires on 2027-11-12 (in 1 day) — run `jogai login` in a terminal to renew it"},
+		{"last hours", expires.Add(-2 * time.Hour), "claude", "jogai's Claude token expires on 2027-11-12 (in less than a day) — run `jogai login` in a terminal to renew it"},
+		{"expired", expires.Add(48 * time.Hour), "claude", "jogai's Claude token expired on 2027-11-12 — run `jogai login` in a terminal"},
+		{"codex does not use it", expires.Add(48 * time.Hour), "codex", ""},
+	}
+	for _, tt := range tests {
+		got := strings.Join(System(Inputs{Now: tt.now, LastIngest: tt.now, Summarizer: tt.summarizer}), "\n")
+		if got != tt.want {
+			t.Errorf("%s: System = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestWarnings_HealthyIsSilent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Now()

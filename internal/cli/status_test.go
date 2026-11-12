@@ -139,7 +139,7 @@ func TestPrintArchiveLine_ReportsAlerts(t *testing.T) {
 		}
 	}
 	ingest()
-	if !printArchiveLine() {
+	if !printArchiveLine("") {
 		t.Error("a healthy archive must not be reported")
 	}
 
@@ -152,7 +152,7 @@ func TestPrintArchiveLine_ReportsAlerts(t *testing.T) {
 	}
 	ingest()
 	_ = store.Close()
-	if printArchiveLine() {
+	if printArchiveLine("") {
 		t.Error("a format warning must be reported")
 	}
 }

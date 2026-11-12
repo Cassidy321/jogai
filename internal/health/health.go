@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
 	"github.com/Cassidy321/jogai/internal/summary"
@@ -61,7 +62,26 @@ func System(in Inputs) []string {
 	if e := update.LastError(); e != "" {
 		out = append(out, "jogai could not update itself: "+e)
 	}
+	if st, ok := claudetoken.LoadState(); ok && in.Summarizer != summary.NameCodex && st.ExpiresSoon(in.Now) {
+		out = append(out, tokenWarning(st, in.Now))
+	}
 	return out
+}
+
+// An expired token fails like any other login failure: the date kept at
+// `jogai login` is the only way to warn before it happens.
+func tokenWarning(st claudetoken.State, now time.Time) string {
+	date := st.ExpiresAt().Format("2006-01-02")
+	if st.Expired(now) {
+		return fmt.Sprintf("jogai's Claude token expired on %s — run `jogai login` in a terminal", date)
+	}
+	left := "in less than a day"
+	if days := int(st.ExpiresAt().Sub(now).Hours() / 24); days == 1 {
+		left = "in 1 day"
+	} else if days > 1 {
+		left = fmt.Sprintf("in %d days", days)
+	}
+	return fmt.Sprintf("jogai's Claude token expires on %s (%s) — run `jogai login` in a terminal to renew it", date, left)
 }
 
 // A day stopped by the login or the setup fails again on every run: it gets one

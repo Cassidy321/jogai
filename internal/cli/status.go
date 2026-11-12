@@ -39,7 +39,7 @@ func (c *StatusCmd) Run() error {
 	if !printOutputSection(cfg, cfgErr) {
 		healthy = false
 	}
-	if !printArchiveLine() {
+	if !printArchiveLine(summarizerName(cfg)) {
 		healthy = false
 	}
 
