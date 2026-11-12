@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
@@ -44,14 +45,25 @@ func (c Claude) Generate(ctx context.Context, req Request) (*Summary, error) {
 		return nil, err
 	}
 	if resp.IsError {
-		return nil, &Error{Kind: classify(resp.Result), Msg: "claude: " + resp.Result}
+		return nil, &Error{Kind: resp.kind(), Msg: "claude: " + resp.Result}
 	}
 	return &Summary{Content: strings.TrimSpace(resp.Result)}, nil
 }
 
 type claudeResponse struct {
-	Result  string `json:"result"`
-	IsError bool   `json:"is_error"`
+	Result         string `json:"result"`
+	IsError        bool   `json:"is_error"`
+	APIErrorStatus int    `json:"api_error_status"`
+}
+
+// The status outlives a rewording of the message. The text is still read
+// first, so a message already known as transient or refused keeps its kind.
+func (r *claudeResponse) kind() Kind {
+	k := classify(r.Result)
+	if k == KindFatal && r.APIErrorStatus == http.StatusUnauthorized {
+		return KindAuth
+	}
+	return k
 }
 
 func (c Claude) run(ctx context.Context, prompt string) (*claudeResponse, error) {

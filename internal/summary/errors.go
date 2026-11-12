@@ -73,6 +73,11 @@ var (
 	authPatterns = []string{
 		"not logged in",
 		"please run /login",
+		"login expired",
+		"failed to authenticate",
+		"could not be refreshed",
+		"sign in again",
+		"missing bearer",
 		"invalid api key",
 		"authentication",
 		"unauthorized",

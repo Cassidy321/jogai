@@ -19,6 +19,11 @@ func TestClassify_RealFailures(t *testing.T) {
 		{"API Error: Opus 5's safeguards flagged this message (https://www.anthropic.com/legal/aup).", KindRefused},
 		{"Invalid API key · Please run /login", KindAuth},
 		{"Not logged in · Please run /login", KindAuth},
+		{"Login expired · Please run /login", KindAuth},
+		{"Failed to authenticate: OAuth session expired and could not be refreshed", KindAuth},
+		{"Failed to authenticate. API Error: 401 OAuth access token is invalid.", KindAuth},
+		{"ERROR: Your access token could not be refreshed. Please log out and sign in again.", KindAuth},
+		{"ERROR: unexpected status 401 Unauthorized: Missing bearer or basic authentication in header, url: https://api.openai.com/v1/responses", KindAuth},
 		{"Prompt is too long", KindFatal},
 	}
 	for _, tt := range tests {

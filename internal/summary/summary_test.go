@@ -183,6 +183,27 @@ exit 1
 	}
 }
 
+func TestClaudeGenerate_Status401IsAuth(t *testing.T) {
+	tests := []struct {
+		result string
+		want   Kind
+	}{
+		{"A wording jogai has never seen", KindAuth},
+		{"API Error: Stream idle timeout - partial response received", KindTransient},
+	}
+	for _, tt := range tests {
+		stubCLI(t, "claude", `#!/bin/sh
+/bin/cat > /dev/null
+echo '{"result":"`+tt.result+`","is_error":true,"api_error_status":401}'
+exit 1
+`)
+		_, err := Claude{}.Generate(context.Background(), Request{Sessions: oneSession})
+		if KindOf(err) != tt.want {
+			t.Errorf("KindOf(%v) = %v, want %v", err, KindOf(err), tt.want)
+		}
+	}
+}
+
 func TestClaudeGenerate_TimeoutIsTransient(t *testing.T) {
 	stubCLI(t, "claude", "#!/bin/sh\nexec /bin/sleep 5\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
