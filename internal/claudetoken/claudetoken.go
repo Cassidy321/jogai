@@ -2,6 +2,7 @@ package claudetoken
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,7 @@ import (
 )
 
 const (
-	service      = "jogai"
+	Service      = "jogai"
 	account      = "claude-token"
 	exitNotFound = 44
 	stateFile    = "claude_token.json"
@@ -26,7 +27,18 @@ const (
 	warnBefore = 30 * 24 * time.Hour
 )
 
-var ErrUnsupported = errors.New("the macOS Keychain is not available on this system")
+// A locked Keychain does not fail: the read waits for as long as nobody
+// unlocks it. The scheduled run would wait forever, holding the run lock, so
+// every later run would skip.
+const (
+	Attended   = 2 * time.Minute
+	Unattended = 10 * time.Second
+)
+
+var (
+	ErrUnsupported = errors.New("the macOS Keychain is not available on this system")
+	ErrNoAnswer    = errors.New("the macOS Keychain did not answer, it is probably locked")
+)
 
 type runner func(stdin string, args ...string) (stdout string, exit int, err error)
 
@@ -41,32 +53,40 @@ type Store struct {
 
 func Supported() bool { return runtime.GOOS == "darwin" }
 
-func New() Store {
+func New(patience time.Duration) Store {
 	run := runner(func(string, ...string) (string, int, error) { return "", 0, ErrUnsupported })
 	if Supported() {
-		run = security
+		run = security("/usr/bin/security", patience)
 	}
 	return Store{run: run, now: time.Now}
 }
 
-func security(stdin string, args ...string) (string, int, error) {
-	cmd := exec.Command("/usr/bin/security", args...)
-	cmd.Stdin = strings.NewReader(stdin)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	var exit *exec.ExitError
-	if errors.As(err, &exit) {
-		return string(out), exit.ExitCode(), errors.New(strings.TrimSpace(stderr.String()))
+func security(bin string, patience time.Duration) runner {
+	return func(stdin string, args ...string) (string, int, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), patience)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, bin, args...)
+		cmd.Stdin = strings.NewReader(stdin)
+		cmd.WaitDelay = time.Second
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if ctx.Err() != nil {
+			return "", 0, ErrNoAnswer
+		}
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			return string(out), exit.ExitCode(), errors.New(strings.TrimSpace(stderr.String()))
+		}
+		return string(out), 0, err
 	}
-	return string(out), 0, err
 }
 
 // The token goes through stdin: arguments are visible to every process. It is
 // read back because the scheduled run only ever reads: a token that cannot be
 // read must fail here, in front of the user, not at night.
 func (s Store) Save(token string) error {
-	line := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", service, account, hex.EncodeToString([]byte(token)))
+	line := fmt.Sprintf("add-generic-password -U -s %s -a %s -X %s\n", Service, account, hex.EncodeToString([]byte(token)))
 	if _, _, err := s.run(line, "-i"); err != nil {
 		return fmt.Errorf("save the token in the Keychain: %w", err)
 	}
@@ -85,7 +105,7 @@ func (s Store) Save(token string) error {
 }
 
 func (s Store) Load() (string, error) {
-	out, exit, err := s.run("", "find-generic-password", "-s", service, "-a", account, "-w")
+	out, exit, err := s.run("", "find-generic-password", "-s", Service, "-a", account, "-w")
 	switch {
 	case errors.Is(err, ErrUnsupported):
 		return "", nil
@@ -99,7 +119,7 @@ func (s Store) Load() (string, error) {
 }
 
 func (s Store) Delete() (removed bool, err error) {
-	_, exit, err := s.run("", "delete-generic-password", "-s", service, "-a", account)
+	_, exit, err := s.run("", "delete-generic-password", "-s", Service, "-a", account)
 	removeState()
 	switch {
 	case errors.Is(err, ErrUnsupported), exit == exitNotFound:

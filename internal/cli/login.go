@@ -62,7 +62,7 @@ func runLogin(summarizer string, d loginDeps) error {
 	fmt.Fprintln(d.out, "jogai login — connect your recaps to Claude for one year")
 	fmt.Fprintln(d.out)
 	fmt.Fprintln(d.out, "  Your browser opens next. Approve the access, then copy the token")
-	fmt.Fprintln(d.out, "  Claude prints. jogai stores it for you.")
+	fmt.Fprintln(d.out, "  Claude prints. jogai keeps it in your macOS Keychain.")
 	fmt.Fprintln(d.out)
 	if err := d.setupToken(); err != nil {
 		return fmt.Errorf("claude setup-token failed (%w) — it needs a Claude subscription; with an API key, run `claude auth login` instead", err)
@@ -78,7 +78,8 @@ func runLogin(summarizer string, d loginDeps) error {
 		return err
 	}
 	fmt.Fprintf(d.out, "  ✓ Recaps are connected to Claude until %s\n", expires.Format("2006-01-02"))
-	fmt.Fprintln(d.out, "    jogai will remind you a month before.")
+	fmt.Fprintf(d.out, "    The token is in your macOS Keychain, under %q.\n", claudetoken.Service)
+	fmt.Fprintln(d.out, "    jogai will remind you a month before it expires.")
 	if hasFailedDays() {
 		fmt.Fprintln(d.out, "    The dev days that failed are recapped on the next run, or now with `jogai run`.")
 	}
@@ -136,7 +137,7 @@ func systemLogin() loginDeps {
 			return summary.Claude{Token: token}.Ping(ctx)
 		},
 		save: func(token string) (time.Time, error) {
-			if err := claudetoken.New().Save(token); err != nil {
+			if err := claudetoken.New(claudetoken.Attended).Save(token); err != nil {
 				return time.Time{}, err
 			}
 			st, _ := claudetoken.LoadState()

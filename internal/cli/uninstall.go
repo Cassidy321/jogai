@@ -31,7 +31,7 @@ func (c *UninstallCmd) Run() error {
 			fmt.Println("  ✓ removed from Claude Code")
 		}
 	}
-	switch removed, err := claudetoken.New().Delete(); {
+	switch removed, err := claudetoken.New(claudetoken.Attended).Delete(); {
 	case err != nil:
 		fmt.Printf("  ! %v\n", err)
 	case removed:

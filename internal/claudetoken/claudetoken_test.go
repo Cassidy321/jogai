@@ -183,6 +183,50 @@ func TestUnsupportedSystem(t *testing.T) {
 	}
 }
 
+func stubSecurity(t *testing.T, script string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "security")
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return bin
+}
+
+func TestSecurity_ALockedKeychainDoesNotHoldTheRun(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bin := stubSecurity(t, "#!/bin/sh\nexec /bin/sleep 30\n")
+	s := Store{run: security(bin, 200*time.Millisecond), now: time.Now}
+
+	start := time.Now()
+	_, err := s.Load()
+	if !errors.Is(err, ErrNoAnswer) {
+		t.Fatalf("Load error = %v, want ErrNoAnswer", err)
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("Load waited %v for a Keychain that does not answer", waited)
+	}
+}
+
+func TestSecurity_ReportsOutputAndExitCode(t *testing.T) {
+	bin := stubSecurity(t, `#!/bin/sh
+if [ "$1" = "find-generic-password" ]; then
+  echo "The specified item could not be found in the keychain." >&2
+  exit 44
+fi
+/bin/cat
+echo "args: $*"
+`)
+	run := security(bin, 5*time.Second)
+	out, exit, err := run("typed on stdin\n", "-i")
+	if err != nil || exit != 0 || out != "typed on stdin\nargs: -i\n" {
+		t.Errorf("run = (%q, %d, %v)", out, exit, err)
+	}
+	_, exit, err = run("", "find-generic-password", "-s", "jogai")
+	if exit != exitNotFound || err == nil || !strings.Contains(err.Error(), "could not be found") {
+		t.Errorf("missing item = (%d, %v), want exit %d and the message", exit, err, exitNotFound)
+	}
+}
+
 func TestStateExpiry(t *testing.T) {
 	st := State{CreatedAt: created}
 	expires := created.Add(365 * 24 * time.Hour)
