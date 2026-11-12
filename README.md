@@ -71,7 +71,7 @@ jogai run
 jogai run --day 2026-04-01
 ```
 
-All recaps are written as `YYYY-MM-DD.md`. jogai remembers the outcome of each dev day: a day that failed (network, sleep, rate limit) is retried automatically on the next run, and a day without sessions is not tried again.
+All recaps are written as `YYYY-MM-DD.md`. jogai remembers the outcome of each dev day: a day that failed (network, sleep, rate limit) is retried automatically on the next run, and a day without sessions is not tried again. When the summarizer is logged out, the run stops at the first failure instead of failing every project of every day, and picks up where it stopped once you are logged in again.
 
 ### Schedule daily recaps
 
@@ -84,6 +84,16 @@ jogai schedule stop
 The job runs `jogai run` at your `day_end` and each time you log in. If your Mac was asleep at `day_end`, launchd runs it when the Mac wakes; if it was off, the run at login catches up. Every dev day missed in between is recapped, up to 14 days back.
 
 Changing `day_end` with `jogai init` updates the schedule automatically, and so does upgrading jogai.
+
+### Stay logged in to Claude
+
+```bash
+jogai login
+```
+
+Recaps are written by the `claude` CLI, and its login expires when nothing else uses it, for example if you only work in the Claude desktop app. `jogai login` gives jogai its own login instead: your browser opens, you approve the access, then you paste the token Claude prints. jogai checks it, keeps it in the macOS Keychain and uses it for every recap, for one year. `jogai init` offers to do this at the end of the setup.
+
+Claude tells you a month before the token expires; run `jogai login` again to renew it. It needs a Claude subscription. Without a token, or with Codex as the summarizer, jogai uses the CLI's own login, and tells you which command to run (`jogai login` or `codex login`) the day that login stops working.
 
 ### Updates
 
@@ -101,12 +111,12 @@ jogai search --project dokaa --since 2026-09-01 embed iframe
 jogai search --recaps retry
 ```
 
-`jogai init` (and the first run after an upgrade) also registers jogai as an MCP server in Claude Code, for all your projects. Claude then searches your archive by itself when you mention past work — "how did we fix the TCC prompts?" — and reads the whole exchange around what it finds. If something needs your attention (a recap failing for days, an expired login, a failed update), Claude tells you at the start of a session.
+`jogai init` (and the first run after an upgrade) also registers jogai as an MCP server in Claude Code, for all your projects. Claude then searches your archive by itself when you mention past work — "how did we fix the TCC prompts?" — and reads the whole exchange around what it finds. If something needs your attention (a recap failing for days, an expired login and the command that fixes it, a token about to expire, a failed update), Claude tells you at the start of a session.
 
 ### Uninstall
 
 ```bash
-jogai uninstall          # schedule + Claude Code integration
+jogai uninstall          # schedule + Claude Code integration + Claude token
 jogai uninstall --data   # also the archive and settings
 brew uninstall jogai
 ```
@@ -129,7 +139,7 @@ jogai status
   Last run:   2026-04-19 05:00 (dev day 2026-04-18) — ok
 ```
 
-`jogai status` lists the recent dev days that failed (retried on the next run) or were refused by the model (with the command to retry them by hand), and how many days are still waiting for the next run. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body.
+`jogai status` lists the recent dev days that failed (retried on the next run), were stopped by an expired login (with the command that fixes it) or were refused by the model (with the command to retry them by hand), and how many days are still waiting for the next run. If a source failed but others succeeded, the recap is still written and a warning blockquote is added above the body.
 
 ## Requirements
 
