@@ -6,9 +6,12 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
+	"github.com/Cassidy321/jogai/internal/health"
 	"github.com/Cassidy321/jogai/internal/lastrun"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/scheduler"
@@ -36,7 +39,7 @@ func (c *StatusCmd) Run() error {
 	if !printOutputSection(cfg, cfgErr) {
 		healthy = false
 	}
-	if !printArchiveLine() {
+	if !printArchiveLine(summarizerName(cfg)) {
 		healthy = false
 	}
 
@@ -79,10 +82,7 @@ func printSourcesSection(cfg *config.Config, det detectedSources, derr error) bo
 }
 
 func printSummarizerSection(cfg *config.Config) bool {
-	summarizer := summary.NameClaude
-	if cfg != nil && cfg.Summarizer != "" {
-		summarizer = cfg.Summarizer
-	}
+	summarizer := summarizerName(cfg)
 	var sizer summary.Summarizer
 	switch summarizer {
 	case summary.NameCodex:
@@ -94,8 +94,20 @@ func printSummarizerSection(cfg *config.Config) bool {
 		fmt.Printf("  Summarizer: ✗ %s CLI not found\n", summarizer)
 		return false
 	}
-	fmt.Printf("  Summarizer: ✓ %s CLI\n", summarizer)
+	fmt.Printf("  Summarizer: ✓ %s CLI%s\n", summarizer, tokenNote(summarizer, time.Now()))
 	return true
+}
+
+func tokenNote(summarizer string, now time.Time) string {
+	st, ok := claudetoken.LoadState()
+	if !ok || summarizer != summary.NameClaude {
+		return ""
+	}
+	date := st.ExpiresAt().Format("2006-01-02")
+	if st.Expired(now) {
+		return fmt.Sprintf(" (token expired on %s — run `jogai login`)", date)
+	}
+	return fmt.Sprintf(" (token valid until %s)", date)
 }
 
 func printOutputSection(cfg *config.Config, cfgErr error) bool {
@@ -162,7 +174,7 @@ func printLastRun() {
 		fmt.Printf("              ⚠ %s\n", w)
 	}
 	if r.Error != "" {
-		fmt.Printf("              ✗ %s\n", r.Error)
+		fmt.Println(hanging("              ✗ ", r.Error))
 	}
 }
 
@@ -206,9 +218,13 @@ func printDayIssues(cfg *config.Config, now time.Time) bool {
 	for _, s := range devday.Recent(now, *cfg.DayEnd, catchUpDays) {
 		d, recorded := days[s.Label]
 		switch {
+		case recorded && d.Status == lastrun.StatusError && d.Kind != "":
+			ok = false
+			name := summarizerName(cfg)
+			fmt.Printf("  ! %s failed: %s — %s\n", s.Label, health.Cause(d.Kind, name), health.Fix(d.Kind, name))
 		case recorded && d.Status == lastrun.StatusError:
 			ok = false
-			fmt.Printf("  ! %s failed, retried on the next run: %s\n", s.Label, firstLine(d.Error))
+			fmt.Println(dayIssue(s.Label, d.Error))
 		case recorded && d.Status == lastrun.StatusRefused:
 			ok = false
 			fmt.Printf("  ! %s was refused by the model — retry with: jogai run --day %s\n", s.Label, s.Label)
@@ -222,7 +238,26 @@ func printDayIssues(cfg *config.Config, now time.Time) bool {
 	return ok
 }
 
-func firstLine(s string) string {
-	line, _, _ := strings.Cut(s, "\n")
-	return line
+func dayIssue(label, failure string) string {
+	head := fmt.Sprintf("  ! %s failed, retried on the next run:", label)
+	lines := nonBlankLines(failure)
+	if len(lines) <= 1 {
+		return head + " " + strings.Join(lines, "")
+	}
+	return head + "\n      " + strings.Join(lines, "\n      ")
+}
+
+func hanging(prefix, text string) string {
+	indent := strings.Repeat(" ", utf8.RuneCountInString(prefix))
+	return prefix + strings.Join(nonBlankLines(text), "\n"+indent)
+}
+
+func nonBlankLines(text string) []string {
+	var out []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if strings.TrimSpace(line) != "" {
+			out = append(out, line)
+		}
+	}
+	return out
 }

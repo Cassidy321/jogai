@@ -143,6 +143,67 @@ func TestRun_FailingProjectKeepsTheOthers(t *testing.T) {
 	}
 }
 
+var day7 = devday.Span{
+	Start: time.Date(2026, 4, 7, 5, 0, 0, 0, time.UTC),
+	End:   time.Date(2026, 4, 8, 5, 0, 0, 0, time.UTC),
+	Label: "2026-04-07",
+}
+
+func TestRun_LoginFailureStopsTheRun(t *testing.T) {
+	for _, kind := range []summary.Kind{summary.KindAuth, summary.KindConfig} {
+		w := &mockWriter{}
+		calls := 0
+		p := &Pipeline{
+			Archive: fakeArchive(threeProjects),
+			Summarizer: fakeSummarizer{fn: func(summary.Request) (*summary.Summary, error) {
+				calls++
+				return nil, &summary.Error{Kind: kind, Msg: "not logged in"}
+			}},
+			Writer: w,
+		}
+		days := p.Run(context.Background(), []devday.Span{day6, day7})
+		if len(days) != 1 || days[0].Span.Label != day6.Label {
+			t.Fatalf("%v: days = %+v, want only the first one", kind, days)
+		}
+		if calls != 1 || len(w.written) != 0 {
+			t.Errorf("%v: %d call(s), %d file(s) written, want 1 and 0", kind, calls, len(w.written))
+		}
+		err := days[0].Err
+		if summary.KindOf(err) != kind || !strings.Contains(err.Error(), "dokaa: not logged in") {
+			t.Errorf("%v: err = %v (%v)", kind, err, summary.KindOf(err))
+		}
+	}
+}
+
+func TestRun_LoginFailureAfterASectionWritesNothing(t *testing.T) {
+	w := &mockWriter{}
+	p := &Pipeline{
+		Archive: fakeArchive(threeProjects),
+		Summarizer: fakeSummarizer{fn: func(req summary.Request) (*summary.Summary, error) {
+			if req.Project == "jogai" {
+				return nil, &summary.Error{Kind: summary.KindAuth, Msg: "not logged in"}
+			}
+			return body(req)
+		}},
+		Writer: w,
+	}
+	days := p.Run(context.Background(), []devday.Span{day6, day7})
+	if len(days) != 1 || len(w.written) != 0 || summary.KindOf(days[0].Err) != summary.KindAuth {
+		t.Errorf("days = %+v, written %d", days, len(w.written))
+	}
+}
+
+func TestRun_OrdinaryFailureKeepsGoing(t *testing.T) {
+	p := &Pipeline{
+		Archive:    fakeArchive(threeProjects),
+		Summarizer: fakeSummarizer{fn: func(summary.Request) (*summary.Summary, error) { return nil, errors.New("down") }},
+		Writer:     &mockWriter{},
+	}
+	if days := p.Run(context.Background(), []devday.Span{day6, day7}); len(days) != 2 {
+		t.Errorf("days = %+v, want both tried", days)
+	}
+}
+
 func TestRun_EveryProjectFailing(t *testing.T) {
 	w := &mockWriter{}
 	p := &Pipeline{

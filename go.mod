@@ -1,6 +1,6 @@
 module github.com/Cassidy321/jogai
 
-go 1.26.10
+go 1.26.11
 
 require (
 	github.com/alecthomas/kong v1.15.0

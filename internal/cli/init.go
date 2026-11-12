@@ -6,9 +6,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/charmbracelet/huh"
 
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/scheduler"
@@ -102,12 +104,7 @@ func (c *InitCmd) Run() error {
 		return fmt.Errorf("cannot create output directory %s: %w", outputDir, err)
 	}
 
-	cfg := &config.Config{
-		OutputDir:  outputDir,
-		DayEnd:     &parsedDayEnd,
-		Sources:    selectedSources,
-		Summarizer: summarizer,
-	}
+	cfg := updatedConfig(existing, outputDir, parsedDayEnd, selectedSources, summarizer)
 	if err := config.Save(cfg); err != nil {
 		return fmt.Errorf("save config: %w", err)
 	}
@@ -118,6 +115,7 @@ func (c *InitCmd) Run() error {
 	fmt.Printf("  ✓ Sources: %v\n", selectedSources)
 	fmt.Printf("  ✓ Summarizer: %s\n", summarizer)
 	finishSetup()
+	offerClaudeToken(summarizer)
 
 	if err := probeWriteAccess(outputDir); err != nil {
 		fmt.Printf("\n  ! Could not write to %s: %s\n", outputDir, err)
@@ -128,6 +126,56 @@ func (c *InitCmd) Run() error {
 
 	fmt.Println("\nRun 'jogai run' to generate your first recap.")
 	return nil
+}
+
+// The saved config is the starting point: a setting the wizard does not ask
+// about (auto_update) is the user's and must survive a second run.
+func updatedConfig(existing *config.Config, outputDir string, dayEnd config.TimeOfDay, sources []string, summarizer string) *config.Config {
+	cfg := config.Config{}
+	if existing != nil {
+		cfg = *existing
+	}
+	cfg.OutputDir = outputDir
+	cfg.DayEnd = &dayEnd
+	cfg.Sources = sources
+	cfg.Summarizer = summarizer
+	return &cfg
+}
+
+func needsClaudeToken(summarizer string, supported bool, now time.Time) bool {
+	if summarizer != summary.NameClaude || !supported {
+		return false
+	}
+	st, ok := claudetoken.LoadState()
+	return !ok || st.ExpiresSoon(now)
+}
+
+// The setup never fails on the token: recaps still work on the CLI's own
+// login, and `jogai login` can be run later.
+func offerClaudeToken(summarizer string) {
+	d := systemLogin()
+	if !d.terminal || !needsClaudeToken(summarizer, d.supported, time.Now()) {
+		return
+	}
+	connect := true
+	err := huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Title("Connect jogai to Claude for one year?").
+			Description("Recaps then keep working even if the claude CLI gets logged out. Needs a Claude subscription.").
+			Affirmative("Yes").
+			Negative("Not now").
+			Value(&connect),
+	)).WithTheme(jogaiTheme()).Run()
+	if err == nil && connect {
+		fmt.Println()
+		if err = runLogin(summarizer, d); err == nil {
+			return
+		}
+	}
+	if err != nil && !errors.Is(err, huh.ErrUserAborted) {
+		fmt.Printf("  ! %v\n", err)
+	}
+	fmt.Println("  ℹ You can connect later with `jogai login`.")
 }
 
 func finishSetup() {
