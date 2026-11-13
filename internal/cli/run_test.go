@@ -144,6 +144,17 @@ func TestRecord_KeepsTheKindOfFailure(t *testing.T) {
 	}
 }
 
+func TestRecord_FlagsADayTheModelRefused(t *testing.T) {
+	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}, Summary: &summary.Summary{}, Refused: 1}}
+	days := map[string]lastrun.Day{}
+	if failed := record(days, results, nil, map[string]string{"2026-04-14": "h"}); failed != 0 {
+		t.Errorf("failed = %d, want 0: the recap is written", failed)
+	}
+	if got := days["2026-04-14"]; got.Status != lastrun.StatusRefused || got.Hash != "h" {
+		t.Errorf("day = %+v, want refused so the alert shows", got)
+	}
+}
+
 func TestStoppedHint(t *testing.T) {
 	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}}}
 	if got := stoppedHint(map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError}}, results, ""); got != "" {

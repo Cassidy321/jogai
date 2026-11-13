@@ -32,6 +32,7 @@ type Pipeline struct {
 type Day struct {
 	Span    devday.Span
 	Summary *summary.Summary
+	Refused int
 	Err     error
 }
 
@@ -43,8 +44,8 @@ const (
 func (p *Pipeline) Run(ctx context.Context, spans []devday.Span) []Day {
 	days := make([]Day, 0, len(spans))
 	for _, span := range spans {
-		s, err := p.runDay(ctx, span)
-		days = append(days, Day{Span: span, Summary: s, Err: err})
+		s, refused, err := p.runDay(ctx, span)
+		days = append(days, Day{Span: span, Summary: s, Refused: refused, Err: err})
 		if summary.KindOf(err).NeedsUser() {
 			break
 		}
@@ -54,16 +55,17 @@ func (p *Pipeline) Run(ctx context.Context, spans []devday.Span) []Day {
 
 // One failing project must not cost the others: the file is written with the
 // sections that worked and the day is retried, as a whole, on the next run.
-func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summary, error) {
+func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summary, int, error) {
 	activities, err := p.Archive.Day(span.Start, span.End)
 	if err != nil {
-		return nil, fmt.Errorf("read archive: %w", err)
+		return nil, 0, fmt.Errorf("read archive: %w", err)
 	}
 	if len(activities) == 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	var sections []string
 	var failures []error
+	refused := 0
 	for _, a := range activities {
 		heading := a.Project
 		if heading == "" {
@@ -71,7 +73,11 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 		}
 		body, err := p.summarize(ctx, span, a)
 		if summary.KindOf(err).NeedsUser() {
-			return nil, fmt.Errorf("%s: %w", heading, err)
+			return nil, 0, fmt.Errorf("%s: %w", heading, err)
+		}
+		if err != nil && summary.KindOf(err) == summary.KindRefused {
+			refused++
+			body, err = refusedNote, nil
 		}
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", heading, err))
@@ -81,7 +87,7 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 	}
 	failed := errors.Join(failures...)
 	if len(sections) == 0 {
-		return nil, failed
+		return nil, 0, failed
 	}
 	warnings := p.Warnings
 	if failed != nil {
@@ -95,16 +101,13 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 		Warnings:    warnings,
 	}
 	if err := p.Writer.Write(s); err != nil {
-		return nil, fmt.Errorf("write output: %w", err)
+		return nil, 0, fmt.Errorf("write output: %w", err)
 	}
-	return s, failed
+	return s, refused, failed
 }
 
 func (p *Pipeline) summarize(ctx context.Context, span devday.Span, a archive.Activity) (string, error) {
 	s, err := p.Summarizer.Generate(ctx, summary.Request{Day: span.Start, Project: a.Project, Sessions: filter.Reduce(a.Sessions)})
-	if err != nil && summary.KindOf(err) == summary.KindRefused {
-		return refusedNote, nil
-	}
 	if err != nil {
 		return "", err
 	}

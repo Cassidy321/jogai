@@ -230,6 +230,9 @@ func record(days map[string]lastrun.Day, results []recap.Day, warnings []string,
 			case summary.KindFatal, summary.KindTransient:
 			}
 			logErrf("dev day %s: %v", r.Span.Label, r.Err)
+		case r.Refused > 0:
+			d.Status = lastrun.StatusRefused
+			logErrf("dev day %s: recap written, but the model refused to summarize %d project(s)", r.Span.Label, r.Refused)
 		case r.Summary == nil:
 			d.Status = lastrun.StatusEmpty
 			logf("dev day %s: no sessions", r.Span.Label)

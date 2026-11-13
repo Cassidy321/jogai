@@ -112,7 +112,7 @@ func TestRun_RefusedProjectGetsANote(t *testing.T) {
 		Writer: w,
 	}
 	days := p.Run(context.Background(), []devday.Span{day6})
-	if days[0].Err != nil || !strings.Contains(w.written[0].Content, "## jogai\n\n"+refusedNote) {
+	if days[0].Err != nil || days[0].Refused != 1 || !strings.Contains(w.written[0].Content, "## jogai\n\n"+refusedNote) {
 		t.Errorf("day = %+v, content =\n%s", days[0], w.written[0].Content)
 	}
 }
