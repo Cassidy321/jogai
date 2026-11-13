@@ -78,17 +78,24 @@ jobs:
         run: |
           brew install --build-bottle "$FORMULA"
           brew bottle --json --no-rebuild --root-url "$ROOT_URL" "$FORMULA"
-      - name: Test the bottle
-        run: |
-          brew uninstall "$FORMULA"
-          brew install ./jogai--*.bottle.tar.gz
-          brew test "$FORMULA"
       - name: Name the bottle as Homebrew downloads it
         run: |
           mkdir bottles
           mv ./*.bottle.json bottles/
           mv "$(jq -r '.[].bottle.tags[].local_filename' bottles/*.bottle.json)" \
             "bottles/$(jq -r '.[].bottle.tags[].filename' bottles/*.bottle.json)"
+      - name: Publish bottle
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" bottles/*.bottle.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Serve bottle from the disk
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          mkdir -p /tmp/jogai-bottles
+          cp bottles/*.bottle.tar.gz /tmp/jogai-bottles/
+      - name: Install from the bottle
+        run: ./scripts/install-from-bottle.sh "$FORMULA" bottles/*.bottle.json
       - uses: actions/upload-artifact@v4
         with:
           name: bottle-${{ matrix.os }}
@@ -117,29 +124,13 @@ jobs:
           pattern: bottle-*
           path: bottles
           merge-multiple: true
-      - name: Publish bottles
-        if: needs.plan.outputs.publish == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" bottles/*.bottle.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
       - name: Serve bottles from the disk
         if: needs.plan.outputs.publish != 'true'
         run: |
           mkdir -p /tmp/jogai-bottles
           cp bottles/*.bottle.tar.gz /tmp/jogai-bottles/
-      - name: Add bottles to the formula
-        run: brew bottle --merge --write --no-commit --no-all-checks bottles/*.bottle.json
-      # A formula that falls back to compiling still installs, so the test has
-      # to check where the install came from.
-      - name: Smoke test formula
-        run: |
-          brew install "$FORMULA"
-          brew test "$FORMULA"
-          poured="$(brew info --json=v2 --formula "$FORMULA" | jq -r '.formulae[0].installed[0].poured_from_bottle')"
-          if [[ "$poured" != "true" ]]; then
-            echo "jogai was compiled instead of installed from its bottle" >&2
-            exit 1
-          fi
+      - name: Install from the bottle
+        run: ./scripts/install-from-bottle.sh "$FORMULA" bottles/*.bottle.json
       - name: Show formula
         run: cat "$FORMULA_PATH"
       - name: Commit and push tap changes
