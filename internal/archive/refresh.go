@@ -12,6 +12,7 @@ import (
 	"github.com/Cassidy321/jogai/internal/lock"
 	"github.com/Cassidy321/jogai/internal/parser"
 	"github.com/Cassidy321/jogai/internal/project"
+	"github.com/Cassidy321/jogai/internal/secrets"
 )
 
 // Claude Code changes its transcript format without notice. Megabytes of new
@@ -39,10 +40,66 @@ func (s *Store) Refresh(sources []parser.Source, resolver *project.Resolver, rec
 	defer release()
 	var res RefreshResult
 	var errIngest, errIndex, errRecaps error
+	errMask := s.remask()
 	res.Ingested, errIngest = s.Ingest(sources, resolver)
 	res.Indexed, errIndex = s.indexMessages()
 	res.Recaps, errRecaps = s.indexRecaps(recapDir)
-	return res, errors.Join(errIngest, errIndex, errRecaps)
+	return res, errors.Join(errMask, errIngest, errIndex, errRecaps)
+}
+
+// Bump when secrets.Mask learns a format: messages are masked when they are
+// archived, so what is already stored only knows the rules of that day.
+const maskRules = "2"
+
+func (s *Store) remask() error {
+	var applied string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'mask_rules'`).Scan(&applied)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("read mask rules: %w", err)
+	}
+	if applied == maskRules {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT id, text, answers FROM messages`)
+	if err != nil {
+		return fmt.Errorf("read messages: %w", err)
+	}
+	type masked struct{ id, text, answers string }
+	var changed []masked
+	for rows.Next() {
+		var id, text, answers string
+		if err := rows.Scan(&id, &text, &answers); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read messages: %w", err)
+		}
+		t, _ := secrets.Mask(text)
+		a, _ := secrets.Mask(answers)
+		if t != text || a != answers {
+			changed = append(changed, masked{id, t, a})
+		}
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, m := range changed {
+		if _, err := tx.Exec(`UPDATE messages SET text = ?, answers = ?, indexed = 0 WHERE id = ?`, m.text, m.answers, m.id); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DELETE FROM docs WHERE id = ?`, m.id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES('mask_rules', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, maskRules); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) updateFormatWarning(read map[string]int64, found map[string]int) error {

@@ -70,3 +70,40 @@ func TestIngest_WarnsWhenSessionsHaveAnswersButNoUserMessage(t *testing.T) {
 		t.Errorf("warning should clear once a recent session has a user message, got %q", w)
 	}
 }
+
+func TestRefresh_MasksAgainWhatOlderRulesLeftReadable(t *testing.T) {
+	f := newFixture(t)
+	s, _ := openTemp(t)
+	f.appendClaude(t, "s1.jsonl", line("u1", "user", "une question sans secret"))
+	if _, err := s.Refresh(f.sources, f.res, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	leaked := "le déploiement lit GITHUB_TOKEN=abc123def456ghi789"
+	if _, err := s.db.Exec(`UPDATE messages SET text = ? WHERE id = 'u1'`, leaked); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DELETE FROM docs WHERE id = 'u1'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO docs(id, kind, session_id, project, git_branch, role, title, ts, text)
+		VALUES ('u1', 'message', 's1', '', '', 'user', '', 1, ?)`, leaked); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE meta SET value = '1' WHERE key = 'mask_rules'`); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Refresh(f.sources, f.res, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	var text string
+	if err := s.db.QueryRow(`SELECT text FROM messages WHERE id = 'u1'`).Scan(&text); err != nil || text != "le déploiement lit GITHUB_TOKEN=[secret]" {
+		t.Errorf("archived text = (%q, %v), want the token masked", text, err)
+	}
+	if c := count(t, s, `SELECT count(*) FROM docs_words WHERE docs_words MATCH 'abc123def456ghi789'`); c != 0 {
+		t.Errorf("the token is still searchable (%d hits)", c)
+	}
+	if c := count(t, s, `SELECT count(*) FROM docs_words WHERE docs_words MATCH 'deploiement'`); c != 1 {
+		t.Errorf("fts hits = %d, want the masked message indexed again", c)
+	}
+}
