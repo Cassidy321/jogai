@@ -15,6 +15,9 @@ import (
 )
 
 type Writer interface {
+	// Asked before any summarizer call: a recap that will not be written,
+	// like one the user edited by hand, must not cost a call per project.
+	Check(s *summary.Summary) error
 	Write(s *summary.Summary) error
 }
 
@@ -63,6 +66,10 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 	if len(activities) == 0 {
 		return nil, 0, nil
 	}
+	s := &summary.Summary{Date: span.Start, WindowStart: span.Start, WindowEnd: span.End}
+	if err := p.Writer.Check(s); err != nil {
+		return nil, 0, fmt.Errorf("write output: %w", err)
+	}
 	var sections []string
 	var failures []error
 	refused := 0
@@ -93,13 +100,7 @@ func (p *Pipeline) runDay(ctx context.Context, span devday.Span) (*summary.Summa
 	if failed != nil {
 		warnings = append(slices.Clone(warnings), fmt.Sprintf("%d project section(s) missing, retried on the next run", len(failures)))
 	}
-	s := &summary.Summary{
-		Date:        span.Start,
-		WindowStart: span.Start,
-		WindowEnd:   span.End,
-		Content:     strings.Join(sections, "\n\n"),
-		Warnings:    warnings,
-	}
+	s.Content, s.Warnings = strings.Join(sections, "\n\n"), warnings
 	if err := p.Writer.Write(s); err != nil {
 		return nil, 0, fmt.Errorf("write output: %w", err)
 	}
