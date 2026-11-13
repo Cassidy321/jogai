@@ -59,6 +59,7 @@ type jsonlLine struct {
 	UUID             string    `json:"uuid"`
 	GitBranch        string    `json:"gitBranch"`
 	AITitle          string    `json:"aiTitle"`
+	CustomTitle      string    `json:"customTitle"`
 	SessionID        string    `json:"sessionId"`
 	Cwd              string    `json:"cwd"`
 	Timestamp        time.Time `json:"timestamp"`

@@ -22,8 +22,11 @@ func decodeClaudeLine(raw []byte) (Record, bool) {
 	if json.Unmarshal(raw, &line) != nil {
 		return Record{}, false
 	}
-	if line.Type == "ai-title" {
+	switch line.Type {
+	case "ai-title":
 		return Record{SessionID: line.SessionID, Source: SourceClaudeCode, Title: line.AITitle}, line.AITitle != ""
+	case "custom-title":
+		return Record{SessionID: line.SessionID, Source: SourceClaudeCode, Title: line.CustomTitle}, line.CustomTitle != ""
 	}
 	if line.Type != "user" && line.Type != "assistant" {
 		return Record{}, false
