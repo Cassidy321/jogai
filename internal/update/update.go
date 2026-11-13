@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	formula  = "cassidy321/tap/jogai"
-	interval = 24 * time.Hour
+	formula = "cassidy321/tap/jogai"
+	// Under a day on purpose: the job starts a little earlier or later each
+	// morning, and a full 24 hours skipped every other day.
+	interval = 20 * time.Hour
 )
 
 func Daily(ctx context.Context) (bool, error) {
