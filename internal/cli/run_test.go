@@ -189,6 +189,15 @@ func TestRecord_FlagsADayTheModelRefused(t *testing.T) {
 	}
 }
 
+func TestSaveLastRun_AKeptRecapIsNotAFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveLastRun([]recap.Day{{Span: devday.Span{Label: "2026-04-14"}, Err: fmt.Errorf("write output: %w", errEditedByHand)}}, nil)
+	r, err := lastrun.Load()
+	if err != nil || r.Status != lastrun.StatusOK || r.Error != "" {
+		t.Errorf("last run = (%+v, %v), want ok: the day history says the same", r, err)
+	}
+}
+
 func TestNoteRun(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	old := time.Now().Add(-100 * time.Hour)

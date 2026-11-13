@@ -293,10 +293,11 @@ func saveLastRun(results []recap.Day, warnings []string) {
 	r := &lastrun.Record{RanAt: time.Now(), Warnings: warnings, Status: lastrun.StatusEmpty}
 	for _, d := range results {
 		r.DevDay = d.Span.Label
+		kept := errors.Is(d.Err, errEditedByHand)
 		switch {
-		case d.Err != nil:
+		case d.Err != nil && !kept:
 			r.Status, r.Error = lastrun.StatusError, d.Err.Error()
-		case d.Summary != nil && r.Status != lastrun.StatusError:
+		case (d.Summary != nil || kept) && r.Status != lastrun.StatusError:
 			r.Status = lastrun.StatusOK
 		}
 	}
