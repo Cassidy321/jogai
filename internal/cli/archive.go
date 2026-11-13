@@ -55,6 +55,10 @@ func refreshArchive(env *archiveEnv) []string {
 	if res.Ingested.Messages > 0 {
 		logf("Archived %d new message(s)", res.Ingested.Messages)
 	}
+	if res.Busy {
+		logErrf("⚠ archive: another jogai is still reading the sessions")
+		return []string{"the latest sessions were not read: another jogai was still reading them"}
+	}
 	if err == nil {
 		return nil
 	}
@@ -64,36 +68,37 @@ func refreshArchive(env *archiveEnv) []string {
 }
 
 func printArchiveLine(summarizer string) bool {
-	path, err := archive.DefaultPath()
+	warning, err := printArchiveStats()
 	if err != nil {
 		fmt.Printf("  Archive:    ✗ %v\n", err)
 		return false
 	}
-	if _, err := os.Stat(path); err != nil {
-		fmt.Println("  Archive:    empty — the next run fills it")
-		return true
-	}
-	store, err := archive.Open(path)
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	defer func() { _ = store.Close() }()
-	st, err := store.Stats()
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	fmt.Printf("  Archive:    %d messages from %d sessions, updated %s\n",
-		st.Messages, st.Sessions, st.LastIngest.Format("2006-01-02 15:04"))
-	warning, err := store.FormatWarning()
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	alerts := health.System(health.Inputs{Now: time.Now(), LastIngest: st.LastIngest, FormatWarning: warning, Summarizer: summarizer})
+	alerts := health.System(health.Inputs{Now: time.Now(), FormatWarning: warning, Summarizer: summarizer})
 	for _, a := range alerts {
 		fmt.Printf("  ! %s\n", a)
 	}
 	return len(alerts) == 0
+}
+
+func printArchiveStats() (formatWarning string, err error) {
+	path, err := archive.DefaultPath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		fmt.Println("  Archive:    empty — the next run fills it")
+		return "", nil
+	}
+	store, err := archive.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = store.Close() }()
+	st, err := store.Stats()
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("  Archive:    %d messages from %d sessions, updated %s\n",
+		st.Messages, st.Sessions, st.LastIngest.Format("2006-01-02 15:04"))
+	return store.FormatWarning()
 }

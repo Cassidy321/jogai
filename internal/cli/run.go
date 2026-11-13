@@ -46,12 +46,35 @@ func (c *RunCmd) Run() error {
 	}
 	defer release()
 
+	recorded, err := c.run()
+	if !recorded && scheduler.InJob() {
+		noteRun(err)
+	}
+	return err
+}
+
+// A scheduled run that fails before any dev day, or finds nothing to recap,
+// leaves no trace in the day history: without this record a stopped schedule
+// and a run that fails every night at its first step both stay silent.
+func noteRun(failure error) {
+	r, _ := lastrun.Load()
+	if r == nil || r.DevDay == "" || failure != nil {
+		r = &lastrun.Record{Status: lastrun.StatusOK}
+	}
+	r.RanAt = time.Now()
+	if failure != nil {
+		r.Status, r.Error = lastrun.StatusError, failure.Error()
+	}
+	_ = lastrun.Save(r)
+}
+
+func (c *RunCmd) run() (recorded bool, err error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if cfg.DayEnd == nil {
-		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
+		return false, fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
 	repairSchedule()
 	if changed, err := registerMCP(stableExecutable()); err != nil {
@@ -91,26 +114,29 @@ func repairSchedule() {
 	}
 }
 
-func (c *RunCmd) recapPending(cfg *config.Config) error {
+func (c *RunCmd) recapPending(cfg *config.Config) (recorded bool, err error) {
 	env, err := openArchive(cfg)
 	if err != nil {
-		return fmt.Errorf("session archive: %w", err)
+		return false, fmt.Errorf("session archive: %w", err)
 	}
 	defer func() { _ = env.store.Close() }()
 	warnings := refreshArchive(env)
-	sizer := selectSummarizer(cfg.Summarizer)
+	sizer, err := selectSummarizer(cfg.Summarizer)
+	if err != nil {
+		return false, err
+	}
 	if err := sizer.CheckCLI(); err != nil {
-		return err
+		return false, err
 	}
 
 	days := loadDays()
-	spans, err := c.spans(time.Now(), *cfg.DayEnd, days, recapExists(cfg.OutputDir))
+	spans, err := c.spans(time.Now(), *cfg.DayEnd, days, recapExists(cfg.OutputDir), len(warnings) == 0)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(spans) == 0 {
 		logf("Every recent dev day is already recapped.")
-		return nil
+		return false, nil
 	}
 	logf("Recapping %s", describeSpans(spans))
 
@@ -132,14 +158,14 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	}
 	saveLastRun(results, warnings)
 	if failed > 0 {
-		return fmt.Errorf("%d dev day(s) failed — see the errors above", failed)
+		return true, fmt.Errorf("%d dev day(s) failed — see the errors above", failed)
 	}
-	return nil
+	return true, nil
 }
 
-func (c *RunCmd) spans(now time.Time, dayEnd config.TimeOfDay, days map[string]lastrun.Day, exists func(label string) bool) ([]devday.Span, error) {
+func (c *RunCmd) spans(now time.Time, dayEnd config.TimeOfDay, days map[string]lastrun.Day, exists func(label string) bool, allRead bool) ([]devday.Span, error) {
 	if c.Day == "" {
-		return pendingSpans(devday.Recent(now, dayEnd, catchUpDays), days, exists), nil
+		return pendingSpans(devday.Recent(now, dayEnd, catchUpDays), days, exists, allRead), nil
 	}
 	span, err := c.daySpan(now, dayEnd)
 	if err != nil {
@@ -162,11 +188,14 @@ func (c *RunCmd) daySpan(now time.Time, dayEnd config.TimeOfDay) (devday.Span, e
 
 // A recap file without a recorded outcome predates the day history: count it
 // as done rather than regenerating two weeks of recaps after an upgrade.
-func pendingSpans(candidates []devday.Span, days map[string]lastrun.Day, exists func(label string) bool) []devday.Span {
+// A partial day was recapped while some sessions could not be read: it is
+// redone only once they all can, or every run would rewrite it for nothing.
+func pendingSpans(candidates []devday.Span, days map[string]lastrun.Day, exists func(label string) bool, allRead bool) []devday.Span {
 	var out []devday.Span
 	for _, s := range candidates {
 		d, recorded := days[s.Label]
-		if recorded && !d.NeedsRetry() {
+		retry := d.NeedsRetry() || (d.Status == lastrun.StatusPartial && allRead)
+		if recorded && !retry {
 			continue
 		}
 		if !recorded && exists(s.Label) {
@@ -230,12 +259,18 @@ func record(days map[string]lastrun.Day, results []recap.Day, warnings []string,
 			case summary.KindFatal, summary.KindTransient:
 			}
 			logErrf("dev day %s: %v", r.Span.Label, r.Err)
-		case r.Summary == nil:
-			d.Status = lastrun.StatusEmpty
-			logf("dev day %s: no sessions", r.Span.Label)
+		case r.Refused > 0:
+			d.Status = lastrun.StatusRefused
+			logErrf("dev day %s: recap written, but the model refused to summarize %d project(s)", r.Span.Label, r.Refused)
+		case len(warnings) > 0 && r.Summary == nil:
+			d.Status = lastrun.StatusPartial
+			logf("dev day %s: no sessions found, some sources failed", r.Span.Label)
 		case len(warnings) > 0:
 			d.Status = lastrun.StatusPartial
 			logf("dev day %s: recap written, some sources failed", r.Span.Label)
+		case r.Summary == nil:
+			d.Status = lastrun.StatusEmpty
+			logf("dev day %s: no sessions", r.Span.Label)
 		default:
 			d.Status = lastrun.StatusOK
 			logf("dev day %s: recap written", r.Span.Label)
@@ -258,10 +293,11 @@ func saveLastRun(results []recap.Day, warnings []string) {
 	r := &lastrun.Record{RanAt: time.Now(), Warnings: warnings, Status: lastrun.StatusEmpty}
 	for _, d := range results {
 		r.DevDay = d.Span.Label
+		kept := errors.Is(d.Err, errEditedByHand)
 		switch {
-		case d.Err != nil:
+		case d.Err != nil && !kept:
 			r.Status, r.Error = lastrun.StatusError, d.Err.Error()
-		case d.Summary != nil && r.Status != lastrun.StatusError:
+		case (d.Summary != nil || kept) && r.Status != lastrun.StatusError:
 			r.Status = lastrun.StatusOK
 		}
 	}
@@ -300,13 +336,18 @@ func activeSources(cfg *config.Config) ([]parser.Source, error) {
 
 var loadClaudeToken = func() (string, error) { return claudetoken.New(claudetoken.Unattended).Load() }
 
-func selectSummarizer(name string) summary.Summarizer {
+func selectSummarizer(name string) (summary.Summarizer, error) {
 	if name == summary.NameCodex {
-		return summary.Codex{}
+		return summary.Codex{}, nil
 	}
 	token, err := loadClaudeToken()
+	// Going on with the CLI's own login would fail there and tell the user to
+	// run `jogai login` when the stored token is fine: the next run retries.
+	if _, stored := claudetoken.LoadState(); stored && errors.Is(err, claudetoken.ErrNoAnswer) {
+		return nil, err
+	}
 	if err != nil {
 		logErrf("⚠ %v — using the claude CLI's own login", err)
 	}
-	return summary.Claude{Token: token}
+	return summary.Claude{Token: token}, nil
 }

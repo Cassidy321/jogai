@@ -63,8 +63,10 @@ func TestIndexRecaps_FollowsTheVault(t *testing.T) {
 	t0 := time.Date(2026, 9, 26, 5, 0, 0, 0, time.Local)
 	writeRecap(t, dir, "2026-09-25", "# 2026-09-25\n\n### Dokaa\n\nembed iframe\n", t0)
 	writeRecap(t, dir, "2026-09-24", "# 2026-09-24\n\nretry policy\n", t0)
-	if err := os.WriteFile(filepath.Join(dir, "notes.md"), []byte("not a recap"), 0o644); err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"notes.md", "2026-02-30.md", "2026-9-5.md"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("not a recap"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	if n, err := s.indexRecaps(dir); err != nil || n != 2 {

@@ -36,7 +36,7 @@ func TestDue(t *testing.T) {
 	if due(stamp, now.Add(time.Hour)) {
 		t.Error("checked an hour ago: not due")
 	}
-	if !due(stamp, now.Add(25*time.Hour)) {
-		t.Error("checked yesterday: due")
+	if !due(stamp, now.Add(24*time.Hour-10*time.Minute)) {
+		t.Error("checked yesterday, a few minutes later in the morning: due")
 	}
 }

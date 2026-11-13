@@ -62,7 +62,9 @@ func (c Codex) exec(ctx context.Context, bin, prompt string, isolated bool) (str
 		if ctx.Err() != nil {
 			return "", &Error{Kind: KindTransient, Msg: "codex CLI timed out"}
 		}
-		detail := strings.TrimSpace(stderr.String())
+		// Codex echoes the prompt before it fails: left in, words typed in the
+		// user's sessions ("usage policy", "authentication") would set the kind.
+		detail := strings.TrimSpace(strings.Replace(stderr.String(), strings.TrimSpace(prompt), "", 1))
 		if isolated && strings.Contains(detail, "unexpected argument '"+ignoreUserConfig+"'") {
 			return "", errNoIgnoreUserConfig
 		}

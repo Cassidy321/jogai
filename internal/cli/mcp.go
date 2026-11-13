@@ -42,13 +42,12 @@ func (c *MCPCmd) Run() error {
 	}
 	go refresh()
 
-	stats, _ := env.store.Stats()
 	warning, _ := env.store.FormatWarning()
 	server := mcpserver.New(mcpserver.Deps{
 		Store:          env.store,
 		Refresh:        refresh,
 		ExcludeSession: os.Getenv("CLAUDE_CODE_SESSION_ID"),
-		Health:         health.Warnings(health.Inputs{Now: time.Now(), LastIngest: stats.LastIngest, FormatWarning: warning, Summarizer: summarizerName(cfg)}),
+		Health:         health.Warnings(health.Inputs{Now: time.Now(), FormatWarning: warning, Summarizer: summarizerName(cfg)}),
 		Version:        version,
 	})
 	return server.Run(ctx, &mcp.StdioTransport{})
