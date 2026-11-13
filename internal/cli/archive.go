@@ -95,7 +95,7 @@ func printArchiveLine(summarizer string) bool {
 		fmt.Printf("  Archive:    ✗ %v\n", err)
 		return false
 	}
-	alerts := health.System(health.Inputs{Now: time.Now(), LastIngest: st.LastIngest, FormatWarning: warning, Summarizer: summarizer})
+	alerts := health.System(health.Inputs{Now: time.Now(), FormatWarning: warning, Summarizer: summarizer})
 	for _, a := range alerts {
 		fmt.Printf("  ! %s\n", a)
 	}

@@ -188,6 +188,30 @@ func TestRecord_FlagsADayTheModelRefused(t *testing.T) {
 	}
 }
 
+func TestNoteRun(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	old := time.Now().Add(-100 * time.Hour)
+	if err := lastrun.Save(&lastrun.Record{RanAt: old, DevDay: "2026-04-14", Status: lastrun.StatusPartial}); err != nil {
+		t.Fatal(err)
+	}
+
+	noteRun(nil)
+	r, err := lastrun.Load()
+	if err != nil || r.DevDay != "2026-04-14" || r.Status != lastrun.StatusPartial || time.Since(r.RanAt) > time.Minute {
+		t.Errorf("nothing to recap: (%+v, %v), want the last recap kept with the date of this run", r, err)
+	}
+
+	noteRun(errors.New("claude CLI not found"))
+	if r, _ = lastrun.Load(); r.DevDay != "" || r.Status != lastrun.StatusError || r.Error != "claude CLI not found" {
+		t.Errorf("early failure: %+v", r)
+	}
+
+	noteRun(nil)
+	if r, _ = lastrun.Load(); r.Status != lastrun.StatusOK || r.Error != "" {
+		t.Errorf("after the failure is gone: %+v, want it cleared", r)
+	}
+}
+
 func TestStoppedHint(t *testing.T) {
 	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}}}
 	if got := stoppedHint(map[string]lastrun.Day{"2026-04-14": {Status: lastrun.StatusError}}, results, ""); got != "" {

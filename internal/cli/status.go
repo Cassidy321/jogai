@@ -165,11 +165,11 @@ func printLastRun() {
 	if r == nil {
 		return
 	}
-	fmt.Printf("  Last run:   %s (dev day %s) — %s\n",
-		r.RanAt.Local().Format("2006-01-02 15:04"),
-		r.DevDay,
-		r.Status,
-	)
+	day := ""
+	if r.DevDay != "" {
+		day = fmt.Sprintf(" (dev day %s)", r.DevDay)
+	}
+	fmt.Printf("  Last run:   %s%s — %s\n", r.RanAt.Local().Format("2006-01-02 15:04"), day, r.Status)
 	for _, w := range r.Warnings {
 		fmt.Printf("              ⚠ %s\n", w)
 	}

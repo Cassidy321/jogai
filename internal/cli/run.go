@@ -46,12 +46,35 @@ func (c *RunCmd) Run() error {
 	}
 	defer release()
 
+	recorded, err := c.run()
+	if !recorded && scheduler.InJob() {
+		noteRun(err)
+	}
+	return err
+}
+
+// A scheduled run that fails before any dev day, or finds nothing to recap,
+// leaves no trace in the day history: without this record a stopped schedule
+// and a run that fails every night at its first step both stay silent.
+func noteRun(failure error) {
+	r, _ := lastrun.Load()
+	if r == nil || r.DevDay == "" || failure != nil {
+		r = &lastrun.Record{Status: lastrun.StatusOK}
+	}
+	r.RanAt = time.Now()
+	if failure != nil {
+		r.Status, r.Error = lastrun.StatusError, failure.Error()
+	}
+	_ = lastrun.Save(r)
+}
+
+func (c *RunCmd) run() (recorded bool, err error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return false, err
 	}
 	if cfg.DayEnd == nil {
-		return fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
+		return false, fmt.Errorf("dev day boundary not configured — run 'jogai init' to set it")
 	}
 	repairSchedule()
 	if changed, err := registerMCP(stableExecutable()); err != nil {
@@ -91,26 +114,26 @@ func repairSchedule() {
 	}
 }
 
-func (c *RunCmd) recapPending(cfg *config.Config) error {
+func (c *RunCmd) recapPending(cfg *config.Config) (recorded bool, err error) {
 	env, err := openArchive(cfg)
 	if err != nil {
-		return fmt.Errorf("session archive: %w", err)
+		return false, fmt.Errorf("session archive: %w", err)
 	}
 	defer func() { _ = env.store.Close() }()
 	warnings := refreshArchive(env)
 	sizer := selectSummarizer(cfg.Summarizer)
 	if err := sizer.CheckCLI(); err != nil {
-		return err
+		return false, err
 	}
 
 	days := loadDays()
 	spans, err := c.spans(time.Now(), *cfg.DayEnd, days, recapExists(cfg.OutputDir), len(warnings) == 0)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(spans) == 0 {
 		logf("Every recent dev day is already recapped.")
-		return nil
+		return false, nil
 	}
 	logf("Recapping %s", describeSpans(spans))
 
@@ -132,9 +155,9 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	}
 	saveLastRun(results, warnings)
 	if failed > 0 {
-		return fmt.Errorf("%d dev day(s) failed — see the errors above", failed)
+		return true, fmt.Errorf("%d dev day(s) failed — see the errors above", failed)
 	}
-	return nil
+	return true, nil
 }
 
 func (c *RunCmd) spans(now time.Time, dayEnd config.TimeOfDay, days map[string]lastrun.Day, exists func(label string) bool, allRead bool) ([]devday.Span, error) {
