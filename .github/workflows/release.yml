@@ -26,39 +26,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  update-homebrew-tap:
-    name: Update Homebrew Tap
-    runs-on: macos-latest
+  homebrew:
+    name: Homebrew
     needs: release
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: Cassidy321/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: homebrew-tap
-      - name: Update formula
-        run: ./scripts/update-homebrew-formula.sh "${GITHUB_REF_NAME}" "${GITHUB_WORKSPACE}/homebrew-tap/Formula/jogai.rb"
-      - name: Mount tap for Homebrew
-        run: |
-          tap_root="$(brew --repository)/Library/Taps/cassidy321"
-          mkdir -p "$tap_root"
-          ln -sfn "${GITHUB_WORKSPACE}/homebrew-tap" "$tap_root/homebrew-tap"
-      - name: Smoke test formula
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-        run: |
-          brew install --build-from-source cassidy321/tap/jogai
-          brew test cassidy321/tap/jogai
-      - name: Commit and push tap changes
-        working-directory: homebrew-tap
-        run: |
-          if git diff --quiet -- .; then
-            echo "No tap changes to commit."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add Formula/jogai.rb
-          git commit -m "chore: update jogai to ${GITHUB_REF_NAME}"
-          git push
+    uses: ./.github/workflows/bottle.yml
+    with:
+      tag: ${{ github.ref_name }}
+    secrets:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

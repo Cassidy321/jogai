@@ -1,0 +1,157 @@
+name: Bottle
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+    secrets:
+      HOMEBREW_TAP_TOKEN:
+        required: true
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - .github/workflows/bottle.yml
+      - .github/workflows/release.yml
+      - scripts/**
+
+env:
+  FORMULA: cassidy321/tap/jogai
+  FORMULA_PATH: ${{ github.workspace }}/homebrew-tap/Formula/jogai.rb
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+  HOMEBREW_NO_INSTALL_CLEANUP: "1"
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      root_url: ${{ steps.plan.outputs.root_url }}
+      publish: ${{ steps.plan.outputs.publish }}
+    steps:
+      # A pull request rehearses the release with the last published tag and
+      # bottles served from the runner's disk: nothing leaves the workflow.
+      - id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ -n "$TAG" ]]; then
+            {
+              echo "tag=$TAG"
+              echo "root_url=https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}"
+              echo "publish=true"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+              echo "root_url=file:///tmp/jogai-bottles"
+              echo "publish=false"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: Build bottle (${{ matrix.os }})
+    needs: plan
+    runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+      ROOT_URL: ${{ needs.plan.outputs.root_url }}
+    strategy:
+      matrix:
+        # The oldest macOS images GitHub offers for each CPU: Homebrew pours a
+        # bottle on the macOS it was built on and on every later one.
+        os: [macos-15, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Cassidy321/homebrew-tap
+          path: homebrew-tap
+      - name: Update formula
+        run: ./scripts/update-homebrew-formula.sh "$TAG" "$FORMULA_PATH"
+      - name: Mount tap for Homebrew
+        run: ./scripts/mount-homebrew-tap.sh "${GITHUB_WORKSPACE}/homebrew-tap"
+      - name: Build bottle
+        run: |
+          brew install --build-bottle "$FORMULA"
+          brew bottle --json --no-rebuild --root-url "$ROOT_URL" "$FORMULA"
+      - name: Test the bottle
+        run: |
+          brew uninstall "$FORMULA"
+          brew install ./jogai--*.bottle.tar.gz
+          brew test "$FORMULA"
+      - name: Name the bottle as Homebrew downloads it
+        run: |
+          mkdir bottles
+          mv ./*.bottle.json bottles/
+          mv "$(jq -r '.[].bottle.tags[].local_filename' bottles/*.bottle.json)" \
+            "bottles/$(jq -r '.[].bottle.tags[].filename' bottles/*.bottle.json)"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bottle-${{ matrix.os }}
+          path: bottles/
+          if-no-files-found: error
+
+  tap:
+    name: Update Homebrew Tap
+    needs: [plan, build]
+    runs-on: macos-latest
+    env:
+      TAG: ${{ needs.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Cassidy321/homebrew-tap
+          token: ${{ needs.plan.outputs.publish == 'true' && secrets.HOMEBREW_TAP_TOKEN || github.token }}
+          path: homebrew-tap
+      - name: Update formula
+        run: ./scripts/update-homebrew-formula.sh "$TAG" "$FORMULA_PATH"
+      - name: Mount tap for Homebrew
+        run: ./scripts/mount-homebrew-tap.sh "${GITHUB_WORKSPACE}/homebrew-tap"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bottle-*
+          path: bottles
+          merge-multiple: true
+      - name: Publish bottles
+        if: needs.plan.outputs.publish == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" bottles/*.bottle.tar.gz --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Serve bottles from the disk
+        if: needs.plan.outputs.publish != 'true'
+        run: |
+          mkdir -p /tmp/jogai-bottles
+          cp bottles/*.bottle.tar.gz /tmp/jogai-bottles/
+      - name: Add bottles to the formula
+        run: brew bottle --merge --write --no-commit --no-all-checks bottles/*.bottle.json
+      # A formula that falls back to compiling still installs, so the test has
+      # to check where the install came from.
+      - name: Smoke test formula
+        run: |
+          brew install "$FORMULA"
+          brew test "$FORMULA"
+          poured="$(brew info --json=v2 --formula "$FORMULA" | jq -r '.formulae[0].installed[0].poured_from_bottle')"
+          if [[ "$poured" != "true" ]]; then
+            echo "jogai was compiled instead of installed from its bottle" >&2
+            exit 1
+          fi
+      - name: Show formula
+        run: cat "$FORMULA_PATH"
+      - name: Commit and push tap changes
+        if: needs.plan.outputs.publish == 'true'
+        working-directory: homebrew-tap
+        run: |
+          if git diff --quiet -- .; then
+            echo "No tap changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/jogai.rb
+          git commit -m "chore: update jogai to ${TAG}"
+          git push
