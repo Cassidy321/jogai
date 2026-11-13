@@ -136,8 +136,8 @@ func (l *launchd) Install() error {
 
 	path := l.plistPath()
 	oldPlist, hadOldPlist := backupFile(path)
-	if err := os.WriteFile(path, plist, 0o644); err != nil {
-		return fmt.Errorf("write plist: %w", err)
+	if err := writePlist(path, plist); err != nil {
+		return err
 	}
 	if err := l.reload(); err != nil {
 		if hadOldPlist {
@@ -164,6 +164,11 @@ func (l *launchd) Repair() (bool, error) {
 		return false, fmt.Errorf("read plist: %w", err)
 	}
 	execPath := plistExecPath(current)
+	// A plist too damaged to name its binary is not loaded at the next login.
+	// Inside the job, the running binary is the scheduled one.
+	if execPath == "" && InJob() {
+		execPath, _ = os.Executable()
+	}
 	if execPath == "" {
 		return false, nil
 	}
@@ -174,13 +179,26 @@ func (l *launchd) Repair() (bool, error) {
 	if bytes.Equal(current, want) {
 		return false, nil
 	}
-	if err := os.WriteFile(l.plistPath(), want, 0o644); err != nil {
-		return false, fmt.Errorf("write plist: %w", err)
+	if err := writePlist(l.plistPath(), want); err != nil {
+		return false, err
 	}
 	if InJob() {
 		return true, nil
 	}
 	return true, l.reload()
+}
+
+// Renamed into place: a write cut short would leave a plist launchd refuses.
+func writePlist(path string, plist []byte) error {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, plist, 0o644); err != nil {
+		return fmt.Errorf("write plist: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("write plist: %w", err)
+	}
+	return nil
 }
 
 func (l *launchd) render(execPath string) ([]byte, error) {
