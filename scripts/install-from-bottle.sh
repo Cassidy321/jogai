@@ -10,6 +10,9 @@ fi
 formula="$1"
 shift
 
+# Homebrew trusts a tap formula when it is installed by its full name, but the
+# merge below reads it first.
+brew trust --formula "$formula"
 brew bottle --merge --write --no-commit --no-all-checks "$@"
 brew uninstall "$formula" 2>/dev/null || true
 brew install "$formula"
