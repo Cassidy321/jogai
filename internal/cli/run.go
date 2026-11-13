@@ -121,7 +121,10 @@ func (c *RunCmd) recapPending(cfg *config.Config) (recorded bool, err error) {
 	}
 	defer func() { _ = env.store.Close() }()
 	warnings := refreshArchive(env)
-	sizer := selectSummarizer(cfg.Summarizer)
+	sizer, err := selectSummarizer(cfg.Summarizer)
+	if err != nil {
+		return false, err
+	}
 	if err := sizer.CheckCLI(); err != nil {
 		return false, err
 	}
@@ -332,13 +335,18 @@ func activeSources(cfg *config.Config) ([]parser.Source, error) {
 
 var loadClaudeToken = func() (string, error) { return claudetoken.New(claudetoken.Unattended).Load() }
 
-func selectSummarizer(name string) summary.Summarizer {
+func selectSummarizer(name string) (summary.Summarizer, error) {
 	if name == summary.NameCodex {
-		return summary.Codex{}
+		return summary.Codex{}, nil
 	}
 	token, err := loadClaudeToken()
+	// Going on with the CLI's own login would fail there and tell the user to
+	// run `jogai login` when the stored token is fine: the next run retries.
+	if _, stored := claudetoken.LoadState(); stored && errors.Is(err, claudetoken.ErrNoAnswer) {
+		return nil, err
+	}
 	if err != nil {
 		logErrf("⚠ %v — using the claude CLI's own login", err)
 	}
-	return summary.Claude{Token: token}
+	return summary.Claude{Token: token}, nil
 }

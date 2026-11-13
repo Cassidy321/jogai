@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/archive"
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
@@ -263,7 +264,7 @@ func TestBuildActiveParsers_UnknownSource(t *testing.T) {
 }
 
 func TestSelectSummarizer_DefaultsToClaude(t *testing.T) {
-	s := selectSummarizer("")
+	s, _ := selectSummarizer("")
 	if s.Name() != "claude" {
 		t.Errorf("default summarizer = %q, want claude", s.Name())
 	}
@@ -283,10 +284,12 @@ func stubClaudeToken(t *testing.T, token string, err error) {
 
 func TestSelectSummarizer_PassesTheStoredToken(t *testing.T) {
 	stubClaudeToken(t, "stored", nil)
-	if s, ok := selectSummarizer("").(summary.Claude); !ok || s.Token != "stored" {
+	sizer, _ := selectSummarizer("")
+	if s, ok := sizer.(summary.Claude); !ok || s.Token != "stored" {
 		t.Errorf("summarizer = %#v, want claude with the stored token", s)
 	}
-	if _, ok := selectSummarizer("codex").(summary.Codex); !ok {
+	sizer, _ = selectSummarizer("codex")
+	if _, ok := sizer.(summary.Codex); !ok {
 		t.Error("codex takes no token")
 	}
 }
@@ -295,16 +298,40 @@ func TestSelectSummarizer_UnreadableKeychainFallsBackToTheCLILogin(t *testing.T)
 	stubClaudeToken(t, "", errors.New("read the token from the Keychain: locked"))
 	logged := captureStderr(t)
 
-	if s, ok := selectSummarizer("claude").(summary.Claude); !ok || s.Token != "" {
-		t.Errorf("summarizer = %#v, want claude without a token", s)
+	sizer, err := selectSummarizer("claude")
+	if s, ok := sizer.(summary.Claude); err != nil || !ok || s.Token != "" {
+		t.Errorf("summarizer = (%#v, %v), want claude without a token", sizer, err)
 	}
 	if !strings.Contains(logged.String(), "locked") {
 		t.Errorf("the Keychain failure must be logged, got %q", logged.String())
 	}
 }
 
+func TestSelectSummarizer_SilentKeychainStopsTheRunWhenATokenIsStored(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	silent := fmt.Errorf("read the token from the Keychain: %w", claudetoken.ErrNoAnswer)
+	stubClaudeToken(t, "", silent)
+	captureStderr(t)
+
+	if sizer, err := selectSummarizer("claude"); err != nil || sizer == nil {
+		t.Fatalf("no stored token: (%v, %v), want the CLI's own login", sizer, err)
+	}
+
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude_token.json"), []byte(`{"created_at":"2026-11-12T15:07:58Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selectSummarizer("claude"); !errors.Is(err, claudetoken.ErrNoAnswer) {
+		t.Errorf("err = %v, want the run stopped on the Keychain, not sent to a login failure", err)
+	}
+}
+
 func TestSelectSummarizer_Codex(t *testing.T) {
-	s := selectSummarizer("codex")
+	s, _ := selectSummarizer("codex")
 	if s.Name() != "codex" {
 		t.Errorf("got %q, want codex", s.Name())
 	}
