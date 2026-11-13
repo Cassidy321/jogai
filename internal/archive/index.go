@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -67,7 +66,16 @@ func (s *Store) indexMessages() (int, error) {
 	return added, tx.Commit()
 }
 
-var recapName = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}\.md$`)
+// The name must be a real date: taken for a recap, a note called 2026-02-30.md
+// fails the whole pass and no recap is indexed after it.
+func isRecapFile(name string) bool {
+	label, ok := strings.CutSuffix(name, ".md")
+	if !ok {
+		return false
+	}
+	_, err := time.Parse(devday.LabelFormat, label)
+	return err == nil
+}
 
 // Recaps are indexed from the vault, not from what jogai wrote: edits made in
 // Obsidian are what the user remembers.
@@ -95,7 +103,7 @@ func (s *Store) indexRecaps(dir string) (int, error) {
 	seen := map[string]bool{}
 	changed := 0
 	for _, e := range entries {
-		if e.IsDir() || !recapName.MatchString(e.Name()) {
+		if e.IsDir() || !isRecapFile(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
