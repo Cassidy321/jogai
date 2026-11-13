@@ -68,29 +68,7 @@ func refreshArchive(env *archiveEnv) []string {
 }
 
 func printArchiveLine(summarizer string) bool {
-	path, err := archive.DefaultPath()
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	if _, err := os.Stat(path); err != nil {
-		fmt.Println("  Archive:    empty — the next run fills it")
-		return true
-	}
-	store, err := archive.Open(path)
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	defer func() { _ = store.Close() }()
-	st, err := store.Stats()
-	if err != nil {
-		fmt.Printf("  Archive:    ✗ %v\n", err)
-		return false
-	}
-	fmt.Printf("  Archive:    %d messages from %d sessions, updated %s\n",
-		st.Messages, st.Sessions, st.LastIngest.Format("2006-01-02 15:04"))
-	warning, err := store.FormatWarning()
+	warning, err := printArchiveStats()
 	if err != nil {
 		fmt.Printf("  Archive:    ✗ %v\n", err)
 		return false
@@ -100,4 +78,27 @@ func printArchiveLine(summarizer string) bool {
 		fmt.Printf("  ! %s\n", a)
 	}
 	return len(alerts) == 0
+}
+
+func printArchiveStats() (formatWarning string, err error) {
+	path, err := archive.DefaultPath()
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(path); err != nil {
+		fmt.Println("  Archive:    empty — the next run fills it")
+		return "", nil
+	}
+	store, err := archive.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = store.Close() }()
+	st, err := store.Stats()
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("  Archive:    %d messages from %d sessions, updated %s\n",
+		st.Messages, st.Sessions, st.LastIngest.Format("2006-01-02 15:04"))
+	return store.FormatWarning()
 }
