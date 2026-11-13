@@ -54,16 +54,58 @@ func (s *Store) updateFormatWarning(read map[string]int64, found map[string]int)
 		}
 		anyFound = anyFound || found[name] > 0
 	}
-	switch {
-	case len(drifted) > 0:
-		sort.Strings(drifted)
-		return s.setMeta("format_warning", fmt.Sprintf("%s: megabytes of new transcripts on %s but no message found — the format may have changed; update jogai",
+	sort.Strings(drifted)
+	var problems []string
+	if len(drifted) > 0 {
+		problems = append(problems, fmt.Sprintf("%s: megabytes of new transcripts on %s but no message found — the format may have changed; update jogai",
 			strings.Join(drifted, ", "), time.Now().Format("2006-01-02")))
+	}
+	mute, err := s.sourcesWithoutUserMessages()
+	if err != nil {
+		return err
+	}
+	if len(mute) > 0 {
+		problems = append(problems, fmt.Sprintf("%s: the last %d sessions have answers but nothing typed by the user — the format may have changed; update jogai",
+			strings.Join(mute, ", "), muteSessions))
+	}
+	switch {
+	case len(problems) > 0:
+		return s.setMeta("format_warning", strings.Join(problems, "; "))
 	case anyFound:
 		_, err := s.db.Exec(`DELETE FROM meta WHERE key = 'format_warning'`)
 		return err
 	}
 	return nil
+}
+
+// A format change can lose one side of the conversation only (Codex 0.155
+// moved the user's messages): megabytes are still read and answers still
+// found, so the byte check above stays silent. An interactive session always
+// holds something from the user.
+const muteSessions = 5
+
+func (s *Store) sourcesWithoutUserMessages() ([]string, error) {
+	rows, err := s.db.Query(`SELECT source FROM (
+			SELECT id, source, row_number() OVER (PARTITION BY source ORDER BY first_at DESC) AS age
+			FROM sessions WHERE first_at IS NOT NULL
+		) recent
+		WHERE age <= ?
+		GROUP BY source
+		HAVING count(*) = ? AND sum(EXISTS (SELECT 1 FROM messages m WHERE m.session_id = recent.id AND m.role = 'user')) = 0
+		ORDER BY source`, muteSessions, muteSessions)
+	if err != nil {
+		return nil, fmt.Errorf("check recent sessions: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var source string
+		if err := rows.Scan(&source); err != nil {
+			return nil, err
+		}
+		out = append(out, source)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) FormatWarning() (string, error) {

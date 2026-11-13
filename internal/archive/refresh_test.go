@@ -37,3 +37,36 @@ func TestIngest_WarnsWhenTranscriptsStopMatchingTheFormat(t *testing.T) {
 		t.Errorf("warning should clear once messages are found again, got %q", w)
 	}
 }
+
+func TestIngest_WarnsWhenSessionsHaveAnswersButNoUserMessage(t *testing.T) {
+	f := newFixture(t)
+	s, _ := openTemp(t)
+	answer := func(session string) string {
+		return `{"type":"assistant","uuid":"` + session + `-a","sessionId":"` + session + `","cwd":"/w/jogai","timestamp":"2026-10-01T10:00:00Z","message":{"role":"assistant","content":[{"type":"text","text":"fait"}]}}`
+	}
+	for _, session := range []string{"a", "b", "c", "d"} {
+		f.appendClaude(t, session+".jsonl", answer(session))
+	}
+	if _, err := s.Ingest(f.sources, f.res); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := s.FormatWarning(); w != "" {
+		t.Fatalf("FormatWarning = %q, want nothing below %d sessions", w, muteSessions)
+	}
+
+	f.appendClaude(t, "e.jsonl", answer("e"))
+	if _, err := s.Ingest(f.sources, f.res); err != nil {
+		t.Fatal(err)
+	}
+	if w, err := s.FormatWarning(); err != nil || !strings.Contains(w, "claude-code: the last 5 sessions") {
+		t.Fatalf("FormatWarning = (%q, %v), want a claude-code warning", w, err)
+	}
+
+	f.appendClaude(t, "e.jsonl", `{"type":"user","uuid":"e-u","sessionId":"e","cwd":"/w/jogai","timestamp":"2026-10-01T10:05:00Z","message":{"role":"user","content":"merci"}}`)
+	if _, err := s.Ingest(f.sources, f.res); err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := s.FormatWarning(); w != "" {
+		t.Errorf("warning should clear once a recent session has a user message, got %q", w)
+	}
+}
