@@ -85,6 +85,11 @@ var migrations = [][]string{
 		`ALTER TABLE cursors RENAME TO file_cursors`,
 		`DELETE FROM file_cursors WHERE path LIKE '%/.claude/projects/%'`,
 	},
+	{
+		// Text typed after a desktop app reminder used to be dropped as noise:
+		// what never reached the index is cleaned again with the current rules.
+		`UPDATE messages SET indexed = 0 WHERE role = 'user' AND id NOT IN (SELECT id FROM docs)`,
+	},
 }
 
 type Store struct {

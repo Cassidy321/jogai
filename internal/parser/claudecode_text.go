@@ -14,6 +14,7 @@ var systemTextPrefixes = []string{
 	"<bash-stderr>",
 	"<system-reminder>",
 	"<task-notification>",
+	"<side-sessions-event>",
 }
 
 func decodeClaudeLine(raw []byte) (Record, bool) {
@@ -80,6 +81,9 @@ func originKind(raw json.RawMessage) string {
 
 func cleanUserText(text string) string {
 	trimmed := strings.TrimSpace(text)
+	if rest := afterLeadingReminders(trimmed); rest != trimmed {
+		text, trimmed = rest, rest
+	}
 	for _, prefix := range systemTextPrefixes {
 		if strings.HasPrefix(trimmed, prefix) {
 			return ""
@@ -94,6 +98,19 @@ func cleanUserText(text string) string {
 		return "! " + tagContent(trimmed, "bash-input")
 	}
 	return text
+}
+
+// The desktop app puts its reminders in front of what the user typed, in the
+// same message: only the reminders are noise.
+func afterLeadingReminders(s string) string {
+	for strings.HasPrefix(s, "<system-reminder>") {
+		_, rest, closed := strings.Cut(s, "</system-reminder>")
+		if !closed {
+			return s
+		}
+		s = strings.TrimSpace(rest)
+	}
+	return s
 }
 
 func tagContent(s, tag string) string {
