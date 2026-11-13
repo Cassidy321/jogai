@@ -27,7 +27,7 @@ var (
 )
 
 func TestRunSpans_DefaultsToRecentDaysWithoutRecap(t *testing.T) {
-	spans, err := (&RunCmd{}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestRunSpans_DefaultsToRecentDaysWithoutRecap(t *testing.T) {
 }
 
 func TestRunSpans_ForSpecificDay(t *testing.T) {
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestRunSpans_ForSpecificDay(t *testing.T) {
 }
 
 func TestRunSpans_CalendarDayBoundary(t *testing.T) {
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, config.TimeOfDay{}, noHistory, noRecap)
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, config.TimeOfDay{}, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,14 +64,14 @@ func TestRunSpans_CalendarDayBoundary(t *testing.T) {
 
 func TestRunSpans_SpecificDayIgnoresHistory(t *testing.T) {
 	history := map[string]lastrun.Day{"2026-04-15": {Status: lastrun.StatusOK}}
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, history, func(string) bool { return true })
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, history, func(string) bool { return true }, true)
 	if err != nil || len(spans) != 1 {
 		t.Fatalf("--day must regenerate an already recapped day, got (%+v, %v)", spans, err)
 	}
 }
 
 func TestRunSpans_RejectsInvalidDateFormat(t *testing.T) {
-	_, err := (&RunCmd{Day: "04/15/2026"}).spans(testNow, fiveAM, noHistory, noRecap)
+	_, err := (&RunCmd{Day: "04/15/2026"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD") {
 		t.Fatalf("err = %v, want a format error", err)
 	}
@@ -79,20 +79,20 @@ func TestRunSpans_RejectsInvalidDateFormat(t *testing.T) {
 
 func TestRunSpans_RejectsInProgressDay(t *testing.T) {
 	// dev day 2026-04-18 runs from 04-18 05:00 to 04-19 05:00; at 14:00 it's still in progress.
-	_, err := (&RunCmd{Day: "2026-04-18"}).spans(testNow, fiveAM, noHistory, noRecap)
+	_, err := (&RunCmd{Day: "2026-04-18"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err == nil || !strings.Contains(err.Error(), "not yet complete") {
 		t.Fatalf("err = %v, want an incomplete-day error", err)
 	}
 }
 
 func TestRunSpans_RejectsFutureDay(t *testing.T) {
-	if _, err := (&RunCmd{Day: "2026-04-20"}).spans(testNow, fiveAM, noHistory, noRecap); err == nil {
+	if _, err := (&RunCmd{Day: "2026-04-20"}).spans(testNow, fiveAM, noHistory, noRecap, true); err == nil {
 		t.Fatal("expected error for a future day")
 	}
 }
 
 func TestRunSpans_AcceptsLegacyFlagsButIgnoresThem(t *testing.T) {
-	spans, err := (&RunCmd{Scheduled: true, At: "09:00"}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{Scheduled: true, At: "09:00"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil || spans[len(spans)-1].Label != "2026-04-17" {
 		t.Fatalf("legacy flags changed the selection: (%+v, %v)", spans, err)
 	}
@@ -107,14 +107,47 @@ func TestPendingSpans(t *testing.T) {
 	}
 	exists := func(label string) bool { return label == "2026-04-17" }
 
-	got := pendingSpans(candidates, history, exists)
+	got := pendingSpans(candidates, history, exists, true)
 	if len(got) != 1 || got[0].Label != "2026-04-15" {
 		t.Errorf("pending = %+v, want only the failed 2026-04-15", got)
 	}
 
-	got = pendingSpans(candidates, map[string]lastrun.Day{}, noRecap)
+	got = pendingSpans(candidates, map[string]lastrun.Day{}, noRecap, true)
 	if len(got) != 4 {
 		t.Errorf("without history or files every day is pending, got %d", len(got))
+	}
+}
+
+func TestPendingSpans_RedoesAPartialDayOnceEverySessionIsRead(t *testing.T) {
+	candidates := devday.Recent(testNow, fiveAM, 2)
+	history := map[string]lastrun.Day{
+		"2026-04-16": {Status: lastrun.StatusPartial},
+		"2026-04-17": {Status: lastrun.StatusOK},
+	}
+	if got := pendingSpans(candidates, history, noRecap, false); len(got) != 0 {
+		t.Errorf("pending = %+v, want nothing while sessions still cannot be read", got)
+	}
+	got := pendingSpans(candidates, history, noRecap, true)
+	if len(got) != 1 || got[0].Label != "2026-04-16" {
+		t.Errorf("pending = %+v, want the partial 2026-04-16", got)
+	}
+}
+
+func TestRecord_DayWithUnreadSessionsIsPartialEvenWhenEmpty(t *testing.T) {
+	results := []recap.Day{
+		{Span: devday.Span{Label: "2026-04-14"}},
+		{Span: devday.Span{Label: "2026-04-15"}, Summary: &summary.Summary{}},
+	}
+	days := map[string]lastrun.Day{}
+	record(days, results, []string{"some sessions could not be read"}, map[string]string{})
+	for label, d := range days {
+		if d.Status != lastrun.StatusPartial {
+			t.Errorf("%s = %s, want partial so the day is redone", label, d.Status)
+		}
+	}
+	record(days, results[:1], nil, map[string]string{})
+	if got := days["2026-04-14"].Status; got != lastrun.StatusEmpty {
+		t.Errorf("2026-04-14 = %s, want empty once everything was read", got)
 	}
 }
 

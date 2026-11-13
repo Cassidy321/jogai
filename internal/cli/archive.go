@@ -55,6 +55,10 @@ func refreshArchive(env *archiveEnv) []string {
 	if res.Ingested.Messages > 0 {
 		logf("Archived %d new message(s)", res.Ingested.Messages)
 	}
+	if res.Busy {
+		logErrf("⚠ archive: another jogai is still reading the sessions")
+		return []string{"the latest sessions were not read: another jogai was still reading them"}
+	}
 	if err == nil {
 		return nil
 	}

@@ -104,7 +104,7 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	}
 
 	days := loadDays()
-	spans, err := c.spans(time.Now(), *cfg.DayEnd, days, recapExists(cfg.OutputDir))
+	spans, err := c.spans(time.Now(), *cfg.DayEnd, days, recapExists(cfg.OutputDir), len(warnings) == 0)
 	if err != nil {
 		return err
 	}
@@ -137,9 +137,9 @@ func (c *RunCmd) recapPending(cfg *config.Config) error {
 	return nil
 }
 
-func (c *RunCmd) spans(now time.Time, dayEnd config.TimeOfDay, days map[string]lastrun.Day, exists func(label string) bool) ([]devday.Span, error) {
+func (c *RunCmd) spans(now time.Time, dayEnd config.TimeOfDay, days map[string]lastrun.Day, exists func(label string) bool, allRead bool) ([]devday.Span, error) {
 	if c.Day == "" {
-		return pendingSpans(devday.Recent(now, dayEnd, catchUpDays), days, exists), nil
+		return pendingSpans(devday.Recent(now, dayEnd, catchUpDays), days, exists, allRead), nil
 	}
 	span, err := c.daySpan(now, dayEnd)
 	if err != nil {
@@ -162,11 +162,14 @@ func (c *RunCmd) daySpan(now time.Time, dayEnd config.TimeOfDay) (devday.Span, e
 
 // A recap file without a recorded outcome predates the day history: count it
 // as done rather than regenerating two weeks of recaps after an upgrade.
-func pendingSpans(candidates []devday.Span, days map[string]lastrun.Day, exists func(label string) bool) []devday.Span {
+// A partial day was recapped while some sessions could not be read: it is
+// redone only once they all can, or every run would rewrite it for nothing.
+func pendingSpans(candidates []devday.Span, days map[string]lastrun.Day, exists func(label string) bool, allRead bool) []devday.Span {
 	var out []devday.Span
 	for _, s := range candidates {
 		d, recorded := days[s.Label]
-		if recorded && !d.NeedsRetry() {
+		retry := d.NeedsRetry() || (d.Status == lastrun.StatusPartial && allRead)
+		if recorded && !retry {
 			continue
 		}
 		if !recorded && exists(s.Label) {
@@ -233,12 +236,15 @@ func record(days map[string]lastrun.Day, results []recap.Day, warnings []string,
 		case r.Refused > 0:
 			d.Status = lastrun.StatusRefused
 			logErrf("dev day %s: recap written, but the model refused to summarize %d project(s)", r.Span.Label, r.Refused)
-		case r.Summary == nil:
-			d.Status = lastrun.StatusEmpty
-			logf("dev day %s: no sessions", r.Span.Label)
+		case len(warnings) > 0 && r.Summary == nil:
+			d.Status = lastrun.StatusPartial
+			logf("dev day %s: no sessions found, some sources failed", r.Span.Label)
 		case len(warnings) > 0:
 			d.Status = lastrun.StatusPartial
 			logf("dev day %s: recap written, some sources failed", r.Span.Label)
+		case r.Summary == nil:
+			d.Status = lastrun.StatusEmpty
+			logf("dev day %s: no sessions", r.Span.Label)
 		default:
 			d.Status = lastrun.StatusOK
 			logf("dev day %s: recap written", r.Span.Label)
