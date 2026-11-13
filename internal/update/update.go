@@ -46,7 +46,11 @@ func Daily(ctx context.Context) (bool, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, brew, "upgrade", formula).CombinedOutput()
+	cmd := exec.CommandContext(ctx, brew, "upgrade", formula)
+	// brew's children inherit the output pipe: without this, a stuck one keeps
+	// the run and its lock alive long after brew itself was killed.
+	cmd.WaitDelay = 10 * time.Second
+	out, err := cmd.CombinedOutput()
 	errPath := filepath.Join(dir, "last_update_error")
 	if err != nil {
 		failure := fmt.Errorf("brew upgrade %s: %w: %s", formula, err, lastLine(out))
