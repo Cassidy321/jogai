@@ -62,16 +62,18 @@ func TestDecodeClaudeLine(t *testing.T) {
 		t.Errorf("title = (%+v, %v)", title, ok)
 	}
 
-	custom, ok := decodeClaudeLine([]byte(`{"type":"custom-title","customTitle":"Docker containers actuels","sessionId":"s1"}`))
-	if !ok || custom.Title != "Docker containers actuels" || custom.SessionID != "s1" {
-		t.Errorf("custom title = (%+v, %v)", custom, ok)
-	}
-
 	if _, ok := decodeClaudeLine([]byte(`{"type":"assistant","entrypoint":"sdk-cli","message":{"role":"assistant","content":[{"type":"text","text":"x"}]}}`)); ok {
 		t.Error("lines from SDK and `claude -p` runs must be skipped")
 	}
 	if _, ok := decodeClaudeLine([]byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}`)); ok {
 		t.Error("a line without text or answers has nothing to archive")
+	}
+}
+
+func TestDecodeClaudeLine_ReadsACustomTitle(t *testing.T) {
+	custom, ok := decodeClaudeLine([]byte(`{"type":"custom-title","customTitle":"Docker containers actuels","sessionId":"s1"}`))
+	if !ok || custom.Title != "Docker containers actuels" || custom.SessionID != "s1" {
+		t.Errorf("custom title = (%+v, %v)", custom, ok)
 	}
 }
 
