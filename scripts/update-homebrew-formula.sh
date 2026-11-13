@@ -47,6 +47,21 @@ awk \
     print "  sha256 \"" sha256 "\""
     next
   }
+  /^  bottle do$/ {
+    in_bottle = 1
+    next
+  }
+  in_bottle {
+    if ($0 == "  end") {
+      in_bottle = 0
+      after_bottle = 1
+    }
+    next
+  }
+  after_bottle {
+    after_bottle = 0
+    if ($0 == "") next
+  }
   {
     print
   }
