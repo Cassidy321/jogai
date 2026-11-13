@@ -124,11 +124,8 @@ func TestOpen_RereadsClaudeTranscriptsSkippedByOlderVersions(t *testing.T) {
 	if _, err := raw.Exec(`PRAGMA user_version = 2`); err != nil {
 		t.Fatal(err)
 	}
-	const codex = "/home/me/.codex/sessions/b.jsonl"
-	for p, pos := range map[string]int64{transcript: info.Size(), codex: 7} {
-		if _, err := raw.Exec(`INSERT INTO cursors VALUES (?, ?, '', '', 0)`, p, pos); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := raw.Exec(`INSERT INTO cursors VALUES (?, ?, '', '', 0)`, transcript, info.Size()); err != nil {
+		t.Fatal(err)
 	}
 	_ = raw.Close()
 
@@ -139,13 +136,6 @@ func TestOpen_RereadsClaudeTranscriptsSkippedByOlderVersions(t *testing.T) {
 	defer func() { _ = s.Close() }()
 	if _, err := s.db.Exec(`SELECT path FROM cursors`); err == nil {
 		t.Error("a running older binary must not find the cursors table, or it moves the cursors past the same lines again")
-	}
-	cursors, err := s.cursors()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cursors[codex].Offset != 7 {
-		t.Errorf("codex cursor = %d, want it untouched", cursors[codex].Offset)
 	}
 	res, err := s.Ingest(f.sources[:1], f.res)
 	if err != nil {
@@ -210,5 +200,48 @@ func TestOpen_ReindexesTextTypedAfterAReminder(t *testing.T) {
 	}
 	if c := count(t, s, `SELECT count(*) FROM docs_words WHERE docs_words MATCH 'monday'`); c != 0 {
 		t.Errorf("fts hits = %d, want the reminder left out", c)
+	}
+}
+
+func TestOpen_RereadsCodexSessionsArchivedWithoutUserMessages(t *testing.T) {
+	f := newFixture(t)
+	rollout := filepath.Join(f.home, ".codex", "sessions", "2026", "11", "13", "rollout.jsonl")
+	if err := os.MkdirAll(filepath.Dir(rollout), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	lines := `{"timestamp":"2026-11-13T14:29:35Z","type":"session_meta","payload":{"id":"cx1","cwd":"/w/jogai","originator":"codex-tui"}}
+{"timestamp":"2026-11-13T14:29:36Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","content":[{"type":"text","text":"ceci est un message court"}]}}}
+`
+	if err := os.WriteFile(rollout, []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, path := archiveAtVersion(t, 4)
+	const claude = "/home/me/.claude/projects/-w-jogai/a.jsonl"
+	for p, pos := range map[string]int{rollout: len(lines), claude: 7} {
+		if _, err := raw.Exec(`INSERT INTO file_cursors VALUES (?, ?, 'cx1', '/w/jogai', 0)`, p, pos); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = raw.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer func() { _ = s.Close() }()
+	cursors, err := s.cursors()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cursors[claude].Offset != 7 {
+		t.Errorf("claude cursor = %d, want it untouched", cursors[claude].Offset)
+	}
+	res, err := s.Ingest(f.sources[1:], f.res)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Messages != 1 {
+		t.Errorf("Messages = %d, want the typed message archived", res.Messages)
 	}
 }

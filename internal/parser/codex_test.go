@@ -28,6 +28,19 @@ func TestCodexReadFrom_Happy(t *testing.T) {
 	}
 }
 
+func TestCodexReadFrom_UserMessageItems(t *testing.T) {
+	records := readCodexFixture(t, "codex_items.jsonl")
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want the typed message and the answer, each once: %+v", len(records), records)
+	}
+	if r := records[0]; r.Role != "user" || r.Text != "ceci est un message court" || r.SessionID != "01a1d550-4623" || r.Cwd != "/Users/cassidy/dokaa" {
+		t.Errorf("records[0] = %+v", r)
+	}
+	if r := records[1]; r.Role != "assistant" || r.Text != "D’accord." {
+		t.Errorf("records[1] = %+v", r)
+	}
+}
+
 func TestCodexReadFrom_Corrupt(t *testing.T) {
 	records := readCodexFixture(t, "codex_corrupt.jsonl")
 	if len(records) != 2 || records[0].Cwd != "/tmp/proj" {

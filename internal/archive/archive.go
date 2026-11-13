@@ -90,6 +90,11 @@ var migrations = [][]string{
 		// what never reached the index is cleaned again with the current rules.
 		`UPDATE messages SET indexed = 0 WHERE role = 'user' AND id NOT IN (SELECT id FROM docs)`,
 	},
+	{
+		// Sessions written by Codex 0.155 and later were archived without what
+		// the user typed: they are read again, the answers already stored are kept.
+		`DELETE FROM file_cursors WHERE path LIKE '%/.codex/sessions/%'`,
+	},
 }
 
 type Store struct {
