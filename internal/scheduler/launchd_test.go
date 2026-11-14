@@ -143,3 +143,41 @@ func TestRepair_LeavesAStoppedScheduleAlone(t *testing.T) {
 		t.Errorf("Repair without a plist = (%v, %v), want (false, nil)", changed, err)
 	}
 }
+
+func TestRepair_RewritesADamagedPlistFromInsideTheJob(t *testing.T) {
+	l, binDir := setupRepair(t)
+	whole, err := generatePlist(config.TimeOfDay{Hour: 5}, "/opt/homebrew/bin/jogai", binDir, filepath.Join(l.configDir, "logs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(l.plistPath(), whole[:300], 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := l.Repair()
+	if err != nil || !changed {
+		t.Fatalf("Repair = (%v, %v), want (true, nil)", changed, err)
+	}
+	got, err := os.ReadFile(l.plistPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plistExecPath(got) != self {
+		t.Errorf("repaired plist runs %q, want the binary of the job %q", plistExecPath(got), self)
+	}
+	if _, err := os.Stat(l.plistPath() + ".tmp"); err == nil {
+		t.Error("the temporary plist was left behind")
+	}
+
+	t.Setenv("XPC_SERVICE_NAME", "")
+	if err := os.WriteFile(l.plistPath(), whole[:300], 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if changed, err := l.Repair(); err != nil || changed {
+		t.Errorf("Repair by hand = (%v, %v), want the plist left alone: a dev build must not take over the schedule", changed, err)
+	}
+}

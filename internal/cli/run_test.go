@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Cassidy321/jogai/internal/archive"
+	"github.com/Cassidy321/jogai/internal/claudetoken"
 	"github.com/Cassidy321/jogai/internal/config"
 	"github.com/Cassidy321/jogai/internal/devday"
 	"github.com/Cassidy321/jogai/internal/lastrun"
@@ -27,7 +28,7 @@ var (
 )
 
 func TestRunSpans_DefaultsToRecentDaysWithoutRecap(t *testing.T) {
-	spans, err := (&RunCmd{}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -41,7 +42,7 @@ func TestRunSpans_DefaultsToRecentDaysWithoutRecap(t *testing.T) {
 }
 
 func TestRunSpans_ForSpecificDay(t *testing.T) {
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +54,7 @@ func TestRunSpans_ForSpecificDay(t *testing.T) {
 }
 
 func TestRunSpans_CalendarDayBoundary(t *testing.T) {
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, config.TimeOfDay{}, noHistory, noRecap)
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, config.TimeOfDay{}, noHistory, noRecap, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,14 +65,14 @@ func TestRunSpans_CalendarDayBoundary(t *testing.T) {
 
 func TestRunSpans_SpecificDayIgnoresHistory(t *testing.T) {
 	history := map[string]lastrun.Day{"2026-04-15": {Status: lastrun.StatusOK}}
-	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, history, func(string) bool { return true })
+	spans, err := (&RunCmd{Day: "2026-04-15"}).spans(testNow, fiveAM, history, func(string) bool { return true }, true)
 	if err != nil || len(spans) != 1 {
 		t.Fatalf("--day must regenerate an already recapped day, got (%+v, %v)", spans, err)
 	}
 }
 
 func TestRunSpans_RejectsInvalidDateFormat(t *testing.T) {
-	_, err := (&RunCmd{Day: "04/15/2026"}).spans(testNow, fiveAM, noHistory, noRecap)
+	_, err := (&RunCmd{Day: "04/15/2026"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err == nil || !strings.Contains(err.Error(), "YYYY-MM-DD") {
 		t.Fatalf("err = %v, want a format error", err)
 	}
@@ -79,20 +80,20 @@ func TestRunSpans_RejectsInvalidDateFormat(t *testing.T) {
 
 func TestRunSpans_RejectsInProgressDay(t *testing.T) {
 	// dev day 2026-04-18 runs from 04-18 05:00 to 04-19 05:00; at 14:00 it's still in progress.
-	_, err := (&RunCmd{Day: "2026-04-18"}).spans(testNow, fiveAM, noHistory, noRecap)
+	_, err := (&RunCmd{Day: "2026-04-18"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err == nil || !strings.Contains(err.Error(), "not yet complete") {
 		t.Fatalf("err = %v, want an incomplete-day error", err)
 	}
 }
 
 func TestRunSpans_RejectsFutureDay(t *testing.T) {
-	if _, err := (&RunCmd{Day: "2026-04-20"}).spans(testNow, fiveAM, noHistory, noRecap); err == nil {
+	if _, err := (&RunCmd{Day: "2026-04-20"}).spans(testNow, fiveAM, noHistory, noRecap, true); err == nil {
 		t.Fatal("expected error for a future day")
 	}
 }
 
 func TestRunSpans_AcceptsLegacyFlagsButIgnoresThem(t *testing.T) {
-	spans, err := (&RunCmd{Scheduled: true, At: "09:00"}).spans(testNow, fiveAM, noHistory, noRecap)
+	spans, err := (&RunCmd{Scheduled: true, At: "09:00"}).spans(testNow, fiveAM, noHistory, noRecap, true)
 	if err != nil || spans[len(spans)-1].Label != "2026-04-17" {
 		t.Fatalf("legacy flags changed the selection: (%+v, %v)", spans, err)
 	}
@@ -107,14 +108,47 @@ func TestPendingSpans(t *testing.T) {
 	}
 	exists := func(label string) bool { return label == "2026-04-17" }
 
-	got := pendingSpans(candidates, history, exists)
+	got := pendingSpans(candidates, history, exists, true)
 	if len(got) != 1 || got[0].Label != "2026-04-15" {
 		t.Errorf("pending = %+v, want only the failed 2026-04-15", got)
 	}
 
-	got = pendingSpans(candidates, map[string]lastrun.Day{}, noRecap)
+	got = pendingSpans(candidates, map[string]lastrun.Day{}, noRecap, true)
 	if len(got) != 4 {
 		t.Errorf("without history or files every day is pending, got %d", len(got))
+	}
+}
+
+func TestPendingSpans_RedoesAPartialDayOnceEverySessionIsRead(t *testing.T) {
+	candidates := devday.Recent(testNow, fiveAM, 2)
+	history := map[string]lastrun.Day{
+		"2026-04-16": {Status: lastrun.StatusPartial},
+		"2026-04-17": {Status: lastrun.StatusOK},
+	}
+	if got := pendingSpans(candidates, history, noRecap, false); len(got) != 0 {
+		t.Errorf("pending = %+v, want nothing while sessions still cannot be read", got)
+	}
+	got := pendingSpans(candidates, history, noRecap, true)
+	if len(got) != 1 || got[0].Label != "2026-04-16" {
+		t.Errorf("pending = %+v, want the partial 2026-04-16", got)
+	}
+}
+
+func TestRecord_DayWithUnreadSessionsIsPartialEvenWhenEmpty(t *testing.T) {
+	results := []recap.Day{
+		{Span: devday.Span{Label: "2026-04-14"}},
+		{Span: devday.Span{Label: "2026-04-15"}, Summary: &summary.Summary{}},
+	}
+	days := map[string]lastrun.Day{}
+	record(days, results, []string{"some sessions could not be read"}, map[string]string{})
+	for label, d := range days {
+		if d.Status != lastrun.StatusPartial {
+			t.Errorf("%s = %s, want partial so the day is redone", label, d.Status)
+		}
+	}
+	record(days, results[:1], nil, map[string]string{})
+	if got := days["2026-04-14"].Status; got != lastrun.StatusEmpty {
+		t.Errorf("2026-04-14 = %s, want empty once everything was read", got)
 	}
 }
 
@@ -141,6 +175,50 @@ func TestRecord_KeepsTheKindOfFailure(t *testing.T) {
 		if got.Status != w.Status || got.Kind != w.Kind || got.Error != w.Error {
 			t.Errorf("%s = %+v, want %+v", label, got, w)
 		}
+	}
+}
+
+func TestRecord_FlagsADayTheModelRefused(t *testing.T) {
+	results := []recap.Day{{Span: devday.Span{Label: "2026-04-14"}, Summary: &summary.Summary{}, Refused: 1}}
+	days := map[string]lastrun.Day{}
+	if failed := record(days, results, nil, map[string]string{"2026-04-14": "h"}); failed != 0 {
+		t.Errorf("failed = %d, want 0: the recap is written", failed)
+	}
+	if got := days["2026-04-14"]; got.Status != lastrun.StatusRefused || got.Hash != "h" {
+		t.Errorf("day = %+v, want refused so the alert shows", got)
+	}
+}
+
+func TestSaveLastRun_AKeptRecapIsNotAFailure(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	saveLastRun([]recap.Day{{Span: devday.Span{Label: "2026-04-14"}, Err: fmt.Errorf("write output: %w", errEditedByHand)}}, nil)
+	r, err := lastrun.Load()
+	if err != nil || r.Status != lastrun.StatusOK || r.Error != "" {
+		t.Errorf("last run = (%+v, %v), want ok: the day history says the same", r, err)
+	}
+}
+
+func TestNoteRun(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	old := time.Now().Add(-100 * time.Hour)
+	if err := lastrun.Save(&lastrun.Record{RanAt: old, DevDay: "2026-04-14", Status: lastrun.StatusPartial}); err != nil {
+		t.Fatal(err)
+	}
+
+	noteRun(nil)
+	r, err := lastrun.Load()
+	if err != nil || r.DevDay != "2026-04-14" || r.Status != lastrun.StatusPartial || time.Since(r.RanAt) > time.Minute {
+		t.Errorf("nothing to recap: (%+v, %v), want the last recap kept with the date of this run", r, err)
+	}
+
+	noteRun(errors.New("claude CLI not found"))
+	if r, _ = lastrun.Load(); r.DevDay != "" || r.Status != lastrun.StatusError || r.Error != "claude CLI not found" {
+		t.Errorf("early failure: %+v", r)
+	}
+
+	noteRun(nil)
+	if r, _ = lastrun.Load(); r.Status != lastrun.StatusOK || r.Error != "" {
+		t.Errorf("after the failure is gone: %+v, want it cleared", r)
 	}
 }
 
@@ -195,7 +273,7 @@ func TestBuildActiveParsers_UnknownSource(t *testing.T) {
 }
 
 func TestSelectSummarizer_DefaultsToClaude(t *testing.T) {
-	s := selectSummarizer("")
+	s, _ := selectSummarizer("")
 	if s.Name() != "claude" {
 		t.Errorf("default summarizer = %q, want claude", s.Name())
 	}
@@ -215,10 +293,12 @@ func stubClaudeToken(t *testing.T, token string, err error) {
 
 func TestSelectSummarizer_PassesTheStoredToken(t *testing.T) {
 	stubClaudeToken(t, "stored", nil)
-	if s, ok := selectSummarizer("").(summary.Claude); !ok || s.Token != "stored" {
+	sizer, _ := selectSummarizer("")
+	if s, ok := sizer.(summary.Claude); !ok || s.Token != "stored" {
 		t.Errorf("summarizer = %#v, want claude with the stored token", s)
 	}
-	if _, ok := selectSummarizer("codex").(summary.Codex); !ok {
+	sizer, _ = selectSummarizer("codex")
+	if _, ok := sizer.(summary.Codex); !ok {
 		t.Error("codex takes no token")
 	}
 }
@@ -227,16 +307,40 @@ func TestSelectSummarizer_UnreadableKeychainFallsBackToTheCLILogin(t *testing.T)
 	stubClaudeToken(t, "", errors.New("read the token from the Keychain: locked"))
 	logged := captureStderr(t)
 
-	if s, ok := selectSummarizer("claude").(summary.Claude); !ok || s.Token != "" {
-		t.Errorf("summarizer = %#v, want claude without a token", s)
+	sizer, err := selectSummarizer("claude")
+	if s, ok := sizer.(summary.Claude); err != nil || !ok || s.Token != "" {
+		t.Errorf("summarizer = (%#v, %v), want claude without a token", sizer, err)
 	}
 	if !strings.Contains(logged.String(), "locked") {
 		t.Errorf("the Keychain failure must be logged, got %q", logged.String())
 	}
 }
 
+func TestSelectSummarizer_SilentKeychainStopsTheRunWhenATokenIsStored(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	silent := fmt.Errorf("read the token from the Keychain: %w", claudetoken.ErrNoAnswer)
+	stubClaudeToken(t, "", silent)
+	captureStderr(t)
+
+	if sizer, err := selectSummarizer("claude"); err != nil || sizer == nil {
+		t.Fatalf("no stored token: (%v, %v), want the CLI's own login", sizer, err)
+	}
+
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "claude_token.json"), []byte(`{"created_at":"2026-11-12T15:07:58Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := selectSummarizer("claude"); !errors.Is(err, claudetoken.ErrNoAnswer) {
+		t.Errorf("err = %v, want the run stopped on the Keychain, not sent to a login failure", err)
+	}
+}
+
 func TestSelectSummarizer_Codex(t *testing.T) {
-	s := selectSummarizer("codex")
+	s, _ := selectSummarizer("codex")
 	if s.Name() != "codex" {
 		t.Errorf("got %q, want codex", s.Name())
 	}

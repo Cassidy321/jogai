@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,19 @@ func TestSearch(t *testing.T) {
 				t.Errorf("hits = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSearch_LimitAboveTheMaximumIsCapped(t *testing.T) {
+	s, _ := openTemp(t)
+	for i := range 60 {
+		addDoc(t, s, fmt.Sprintf("m%d", i), "message", "s1", "", "", time.Date(2026, 9, 1, 12, 0, i, 0, time.UTC), "le mot clementine revient")
+	}
+	for limit, want := range map[int]int{0: 10, 20: 20, 200: 50} {
+		hits, err := s.Search(Query{Text: "clementine", Limit: limit})
+		if err != nil || len(hits) != want {
+			t.Errorf("limit %d: (%d hits, %v), want %d", limit, len(hits), err, want)
+		}
 	}
 }
 

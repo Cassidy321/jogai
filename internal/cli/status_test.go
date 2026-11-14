@@ -156,3 +156,21 @@ func TestPrintArchiveLine_ReportsAlerts(t *testing.T) {
 		t.Error("a format warning must be reported")
 	}
 }
+
+func TestPrintArchiveLine_ReportsAlertsBeforeTheFirstRun(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if !printArchiveLine("") {
+		t.Error("a fresh install must not be reported")
+	}
+	dir := filepath.Join(home, ".config", "jogai")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "last_update_error"), []byte("brew upgrade: exit 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if printArchiveLine("") {
+		t.Error("a failed update must be reported even without an archive")
+	}
+}

@@ -24,13 +24,22 @@ type guardedWriter struct {
 	hashes map[string]string
 }
 
-func (w *guardedWriter) Write(s *summary.Summary) error {
+func (w *guardedWriter) Check(s *summary.Summary) error {
 	label := s.Date.Format(devday.LabelFormat)
 	path := w.md.Path(s)
 	if existing, err := os.ReadFile(path); err == nil && !w.force {
 		if want := w.days[label].Hash; want != "" && want != hashOf(existing) {
 			return fmt.Errorf("%s: %w", path, errEditedByHand)
 		}
+	}
+	return nil
+}
+
+func (w *guardedWriter) Write(s *summary.Summary) error {
+	label := s.Date.Format(devday.LabelFormat)
+	path := w.md.Path(s)
+	if err := w.Check(s); err != nil {
+		return err
 	}
 	if err := w.md.Write(s); err != nil {
 		return err

@@ -30,6 +30,11 @@ func TestClean(t *testing.T) {
 		{"bang command input", `{"type":"user","message":{"role":"user","content":"<bash-input>git status</bash-input>"}}`, "! git status"},
 		{"bang command output", `{"type":"user","message":{"role":"user","content":"<bash-stdout>On branch main</bash-stdout><bash-stderr></bash-stderr>"}}`, ""},
 		{"local command output", `{"type":"user","message":{"role":"user","content":"<local-command-stdout>Set model to sonnet</local-command-stdout>"}}`, ""},
+		{"reminder alone", `{"type":"user","message":{"role":"user","content":"<system-reminder>\nToday is Monday.\n</system-reminder>"}}`, ""},
+		{"desktop app reminders before typed text", `{"type":"user","origin":{"kind":"human"},"message":{"role":"user","content":[{"type":"text","text":"<system-reminder>\nLinked sessions now.\n</system-reminder>"},{"type":"text","text":"<system-reminder>\nToday is Monday.\n</system-reminder>\n\nj'ai quoi qui tourne sur docker ?"}]}}`, "j'ai quoi qui tourne sur docker ?"},
+		{"reminder before a slash command", `{"type":"user","message":{"role":"user","content":"<system-reminder>x</system-reminder>\n<command-name>/clear</command-name>"}}`, "/clear"},
+		{"reminder before a desktop app event", `{"type":"user","message":{"role":"user","content":"<system-reminder>x</system-reminder>\n<side-sessions-event>None of the sessions you started is working now</side-sessions-event>"}}`, ""},
+		{"unclosed reminder", `{"type":"user","message":{"role":"user","content":"<system-reminder>\nToday is Monday."}}`, ""},
 		{"prose mentioning a tag is kept", `{"type":"user","message":{"role":"user","content":"why does <command-name> show up?"}}`, "why does <command-name> show up?"},
 		{"plain tool result", `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]},"toolUseResult":"Error: boom"}`, ""},
 		{"AskUserQuestion answers", `{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"x"}]},"toolUseResult":{"questions":[{"question":"Which store?"},{"question":"Keep daily files?"}],"answers":{"Which store?":"SQLite","Keep daily files?":"Yes"}}}`, "Which store? → SQLite\nKeep daily files? → Yes"},
@@ -62,6 +67,13 @@ func TestDecodeClaudeLine(t *testing.T) {
 	}
 	if _, ok := decodeClaudeLine([]byte(`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Bash"}]}}`)); ok {
 		t.Error("a line without text or answers has nothing to archive")
+	}
+}
+
+func TestDecodeClaudeLine_ReadsACustomTitle(t *testing.T) {
+	custom, ok := decodeClaudeLine([]byte(`{"type":"custom-title","customTitle":"Docker containers actuels","sessionId":"s1"}`))
+	if !ok || custom.Title != "Docker containers actuels" || custom.SessionID != "s1" {
+		t.Errorf("custom title = (%+v, %v)", custom, ok)
 	}
 }
 

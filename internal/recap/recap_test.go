@@ -19,7 +19,10 @@ func (f fakeArchive) Day(since, until time.Time) ([]archive.Activity, error) { r
 
 type mockWriter struct {
 	written []*summary.Summary
+	refuse  error
 }
+
+func (m *mockWriter) Check(*summary.Summary) error { return m.refuse }
 
 func (m *mockWriter) Write(s *summary.Summary) error {
 	m.written = append(m.written, s)
@@ -112,8 +115,25 @@ func TestRun_RefusedProjectGetsANote(t *testing.T) {
 		Writer: w,
 	}
 	days := p.Run(context.Background(), []devday.Span{day6})
-	if days[0].Err != nil || !strings.Contains(w.written[0].Content, "## jogai\n\n"+refusedNote) {
+	if days[0].Err != nil || days[0].Refused != 1 || !strings.Contains(w.written[0].Content, "## jogai\n\n"+refusedNote) {
 		t.Errorf("day = %+v, content =\n%s", days[0], w.written[0].Content)
+	}
+}
+
+func TestRun_AsksTheWriterBeforeAnySummarizerCall(t *testing.T) {
+	calls := 0
+	refuse := errors.New("edited by hand")
+	p := &Pipeline{
+		Archive: fakeArchive(threeProjects),
+		Summarizer: fakeSummarizer{fn: func(req summary.Request) (*summary.Summary, error) {
+			calls++
+			return body(req)
+		}},
+		Writer: &mockWriter{refuse: refuse},
+	}
+	days := p.Run(context.Background(), []devday.Span{day6})
+	if !errors.Is(days[0].Err, refuse) || calls != 0 {
+		t.Errorf("err = %v after %d summarizer call(s), want the refusal and no call", days[0].Err, calls)
 	}
 }
 

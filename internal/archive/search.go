@@ -39,8 +39,8 @@ func (s *Store) Search(q Query) ([]Hit, error) {
 	if len(terms) == 0 {
 		return nil, nil
 	}
-	limit := q.Limit
-	if limit <= 0 || limit > 50 {
+	limit := min(q.Limit, 50)
+	if limit <= 0 {
 		limit = 10
 	}
 	hits, err := s.searchIndex("docs_words", ftsMatch(terms, 2, " ", true), q, limit)

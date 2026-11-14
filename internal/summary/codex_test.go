@@ -167,6 +167,31 @@ exit 1
 	}
 }
 
+func TestCodexGenerate_ReadsTheKindFromCodexNotFromTheSessions(t *testing.T) {
+	stubCLI(t, "codex", `#!/bin/sh
+{
+	echo "OpenAI Codex v0.169.0"
+	echo "--------"
+	echo "user"
+	/bin/cat
+	echo
+	echo "ERROR: The 'gpt-4o' model is not supported when using Codex with a ChatGPT account."
+} >&2
+exit 1
+`)
+	sessions := []parser.Session{{
+		ID: "s1", Tool: "codex", Project: "jogai",
+		Messages: []parser.Message{
+			{Role: "user", Content: "the login fails with\nERROR: authentication failed"},
+			{Role: "assistant", Content: "I checked the usage policy page."},
+		},
+	}}
+	_, err := (Codex{}).Generate(context.Background(), Request{Sessions: sessions})
+	if KindOf(err) != KindConfig {
+		t.Errorf("KindOf = %v, want config: %v", KindOf(err), err)
+	}
+}
+
 func TestCodexFailure(t *testing.T) {
 	tests := []struct{ name, log, want string }{
 		{"last error line", "warning: x\nERROR: Reconnecting... 5/5\nERROR: model refused\n", "model refused"},

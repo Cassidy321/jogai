@@ -45,6 +45,13 @@ type codexSessionMeta struct {
 type codexEventMsg struct {
 	Type    string `json:"type"`
 	Message string `json:"message"`
+	Item    struct {
+		Type    string `json:"type"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	} `json:"item"`
 }
 
 type codexResponseItem struct {
@@ -137,12 +144,28 @@ func extractCodexUserEvent(line codexLine) (Message, bool) {
 	if err := json.Unmarshal(line.Payload, &ev); err != nil {
 		return Message{}, false
 	}
-	if ev.Type != "user_message" || ev.Message == "" {
+	text := ev.Message
+	switch {
+	case ev.Type == "user_message":
+	// Codex 0.155 stopped writing user_message: the typed text only comes as a
+	// completed UserMessage item. No version writes both, so nothing is doubled.
+	case ev.Type == "item_completed" && ev.Item.Type == "UserMessage":
+		var parts []string
+		for _, b := range ev.Item.Content {
+			if b.Type == "text" && b.Text != "" {
+				parts = append(parts, b.Text)
+			}
+		}
+		text = strings.Join(parts, "\n")
+	default:
+		return Message{}, false
+	}
+	if text == "" {
 		return Message{}, false
 	}
 	return Message{
 		Role:      "user",
-		Content:   ev.Message,
+		Content:   text,
 		Timestamp: line.Timestamp,
 	}, true
 }

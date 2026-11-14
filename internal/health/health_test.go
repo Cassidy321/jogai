@@ -27,8 +27,12 @@ func TestWarnings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := strings.Join(Warnings(Inputs{Now: now, LastIngest: now.Add(-96 * time.Hour), FormatWarning: "claude-code: format changed"}), "\n")
-	for _, want := range []string{"2026-10-02", "Not logged in", "2026-10-01", "jogai run --day 2026-10-01", "brew upgrade: exit 1", "format changed", "not been updated since"} {
+	if err := lastrun.Save(&lastrun.Record{RanAt: now.Add(-96 * time.Hour), DevDay: "2026-09-29", Status: lastrun.StatusOK}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := strings.Join(Warnings(Inputs{Now: now, FormatWarning: "claude-code: format changed"}), "\n")
+	for _, want := range []string{"2026-10-02", "Not logged in", "2026-10-01", "jogai run --day 2026-10-01", "brew upgrade: exit 1", "format changed", "has not run since 2026-09-30"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("warnings missing %q:\n%s", want, got)
 		}
@@ -60,7 +64,7 @@ func TestWarnings_LoginFailureNamesTheCommand(t *testing.T) {
 		if err := lastrun.SaveDays(days); err != nil {
 			t.Fatal(err)
 		}
-		got := Warnings(Inputs{Now: now, LastIngest: now, Summarizer: tt.summarizer})
+		got := Warnings(Inputs{Now: now, Summarizer: tt.summarizer})
 		want := []string{tt.want, "the recap of 2026-11-09 failed and will be retried on the next run: jogai: socket closed (more in `jogai status`)"}
 		if strings.Join(got, "\n") != strings.Join(want, "\n") {
 			t.Errorf("summarizer %q:\n%s\nwant\n%s", tt.summarizer, strings.Join(got, "\n"), strings.Join(want, "\n"))
@@ -76,7 +80,7 @@ func TestWarnings_RefusedModelNamesTheSetting(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got := Warnings(Inputs{Now: now, LastIngest: now, Summarizer: "codex"})
+	got := Warnings(Inputs{Now: now, Summarizer: "codex"})
 	want := "Codex refuses the model set in ~/.codex/config.toml: recaps are stopped at the dev day 2026-11-11 — open Codex and pick another model with /model"
 	if len(got) != 1 || got[0] != want {
 		t.Errorf("Warnings = %q, want %q", got, want)
@@ -110,17 +114,37 @@ func TestSystem_WarnsBeforeTheTokenExpires(t *testing.T) {
 		{"codex does not use it", expires.Add(48 * time.Hour), "codex", ""},
 	}
 	for _, tt := range tests {
-		got := strings.Join(System(Inputs{Now: tt.now, LastIngest: tt.now, Summarizer: tt.summarizer}), "\n")
+		got := strings.Join(System(Inputs{Now: tt.now, Summarizer: tt.summarizer}), "\n")
 		if got != tt.want {
 			t.Errorf("%s: System = %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }
 
+func TestSystem_SaysWhenARunStoppedBeforeAnyRecap(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 10, 4, 9, 0, 0, 0, time.Local)
+	early := &lastrun.Record{RanAt: now.Add(-4 * time.Hour), Status: lastrun.StatusError, Error: "claude CLI not found in PATH\ndetail"}
+	if err := lastrun.Save(early); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(System(Inputs{Now: now}), "\n"); got != "the last jogai run stopped before any recap: claude CLI not found in PATH (more in `jogai status`)" {
+		t.Errorf("System = %q", got)
+	}
+
+	dayFailure := &lastrun.Record{RanAt: now.Add(-4 * time.Hour), DevDay: "2026-10-03", Status: lastrun.StatusError, Error: "boom"}
+	if err := lastrun.Save(dayFailure); err != nil {
+		t.Fatal(err)
+	}
+	if got := System(Inputs{Now: now}); len(got) != 0 {
+		t.Errorf("System = %v, want nothing: a failed dev day has its own alert", got)
+	}
+}
+
 func TestWarnings_HealthyIsSilent(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	now := time.Now()
-	if got := Warnings(Inputs{Now: now, LastIngest: now.Add(-time.Hour)}); len(got) != 0 {
+	if got := Warnings(Inputs{Now: now}); len(got) != 0 {
 		t.Errorf("Warnings = %v, want none", got)
 	}
 }
@@ -131,7 +155,7 @@ func TestSystem_LeavesOutTheDevDays(t *testing.T) {
 	if err := lastrun.SaveDays(map[string]lastrun.Day{"2026-10-02": {Status: lastrun.StatusError, Error: "boom"}}); err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Join(System(Inputs{Now: now, LastIngest: now.Add(-time.Hour), FormatWarning: "format changed"}), "\n")
+	got := strings.Join(System(Inputs{Now: now, FormatWarning: "format changed"}), "\n")
 	if got != "format changed" {
 		t.Errorf("System = %q, want only the format warning", got)
 	}

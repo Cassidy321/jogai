@@ -17,7 +17,6 @@ const recentDays = 14
 
 type Inputs struct {
 	Now           time.Time
-	LastIngest    time.Time
 	FormatWarning string
 	Summarizer    string
 }
@@ -52,10 +51,7 @@ func Fix(kind, summarizer string) string {
 
 // System leaves out the dev days, which `jogai status` lists in its own terms.
 func System(in Inputs) []string {
-	var out []string
-	if !in.LastIngest.IsZero() && in.Now.Sub(in.LastIngest) > 72*time.Hour {
-		out = append(out, fmt.Sprintf("the session archive has not been updated since %s — is the schedule still running? (`jogai status`)", in.LastIngest.Format("2006-01-02")))
-	}
+	out := runWarnings(in.Now)
 	if in.FormatWarning != "" {
 		out = append(out, in.FormatWarning)
 	}
@@ -66,6 +62,21 @@ func System(in Inputs) []string {
 		out = append(out, tokenWarning(st, in.Now))
 	}
 	return out
+}
+
+// The date of the last run, not of the archive: every Claude session refreshes
+// the archive through `jogai mcp`, with or without a schedule.
+func runWarnings(now time.Time) []string {
+	r, err := lastrun.Load()
+	switch {
+	case err != nil || r == nil:
+		return nil
+	case now.Sub(r.RanAt) > 72*time.Hour:
+		return []string{fmt.Sprintf("jogai has not run since %s — is the schedule still running? (`jogai status`)", r.RanAt.Local().Format("2006-01-02"))}
+	case r.Status == lastrun.StatusError && r.DevDay == "":
+		return []string{"the last jogai run stopped before any recap: " + firstError(r.Error)}
+	}
+	return nil
 }
 
 // An expired token fails like any other login failure: the date kept at
