@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +39,9 @@ func (s *Store) Refresh(sources []parser.Source, resolver *project.Resolver, rec
 		return RefreshResult{}, err
 	}
 	defer release()
+	if err := s.checkNotOutdated(); err != nil {
+		return RefreshResult{}, err
+	}
 	var res RefreshResult
 	var errIngest, errIndex, errRecaps error
 	errMask := s.remask()
@@ -49,15 +53,49 @@ func (s *Store) Refresh(sources []parser.Source, resolver *project.Resolver, rec
 
 // Bump when secrets.Mask learns a format: messages are masked when they are
 // archived, so what is already stored only knows the rules of that day.
-const maskRules = "2"
+const maskRules = 2
+
+// The schema version is only checked when the archive is opened, and every
+// open Claude session keeps its `jogai mcp` for days. After an upgrade, such a
+// process would go on archiving with its older cleaning and masking rules, and
+// nothing redoes those messages later: it stops archiving and only searches.
+func (s *Store) checkNotOutdated() error {
+	var schema int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&schema); err != nil {
+		return fmt.Errorf("read archive version: %w", err)
+	}
+	applied, err := s.appliedMaskRules()
+	if err != nil {
+		return err
+	}
+	if schema > len(migrations) || applied > maskRules {
+		return ErrNewerSchema
+	}
+	return nil
+}
+
+func (s *Store) appliedMaskRules() (int, error) {
+	var value string
+	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'mask_rules'`).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read mask rules: %w", err)
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil {
+		return 0, fmt.Errorf("read mask rules: %w", err)
+	}
+	return n, nil
+}
 
 func (s *Store) remask() error {
-	var applied string
-	err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'mask_rules'`).Scan(&applied)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("read mask rules: %w", err)
+	applied, err := s.appliedMaskRules()
+	if err != nil {
+		return err
 	}
-	if applied == maskRules {
+	if applied >= maskRules {
 		return nil
 	}
 	rows, err := s.db.Query(`SELECT id, text, answers FROM messages`)
@@ -96,7 +134,7 @@ func (s *Store) remask() error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES('mask_rules', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, maskRules); err != nil {
+	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES('mask_rules', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, strconv.Itoa(maskRules)); err != nil {
 		return err
 	}
 	return tx.Commit()

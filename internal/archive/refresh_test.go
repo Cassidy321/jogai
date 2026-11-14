@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -105,5 +106,34 @@ func TestRefresh_MasksAgainWhatOlderRulesLeftReadable(t *testing.T) {
 	}
 	if c := count(t, s, `SELECT count(*) FROM docs_words WHERE docs_words MATCH 'deploiement'`); c != 1 {
 		t.Errorf("fts hits = %d, want the masked message indexed again", c)
+	}
+}
+
+func TestRefresh_AnOlderJogaiStillRunningStopsArchiving(t *testing.T) {
+	for name, upgrade := range map[string]string{
+		"newer schema":     `PRAGMA user_version = 99`,
+		"newer mask rules": `INSERT INTO meta(key, value) VALUES('mask_rules', '99') ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newFixture(t)
+			s, _ := openTemp(t)
+			if _, err := s.Refresh(f.sources, f.res, "", 0); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.db.Exec(upgrade); err != nil {
+				t.Fatal(err)
+			}
+			f.appendClaude(t, "s1.jsonl", line("u1", "user", "tapé après la mise à jour"))
+
+			if _, err := s.Refresh(f.sources, f.res, "", 0); !errors.Is(err, ErrNewerSchema) {
+				t.Fatalf("Refresh = %v, want ErrNewerSchema", err)
+			}
+			if c := count(t, s, `SELECT count(*) FROM messages`); c != 0 {
+				t.Errorf("%d message(s) archived with the older rules", c)
+			}
+			if c := count(t, s, `SELECT count(*) FROM meta WHERE key = 'mask_rules' AND value = '2'`); name == "newer mask rules" && c != 0 {
+				t.Error("the newer mask rules were set back")
+			}
+		})
 	}
 }
